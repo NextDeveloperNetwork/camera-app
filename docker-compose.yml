@@ -6,7 +6,7 @@ services:
     container_name: cameraview-web
     restart: unless-stopped
     ports:
-      - "3000:3000"
+      - "7070:3000"
     environment:
       - NODE_ENV=production
       - GO2RTC_URL=http://stream-server:1984
