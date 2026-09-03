@@ -11,14 +11,9 @@ streams:
     - "rtsp://192.168.1.10:554/user=admin&password=&channel=3&stream=0.sdp"
   camera_channel_4:
     - "rtsp://192.168.1.10:554/user=admin&password=&channel=4&stream=0.sdp"
-  playback_test:
-    - rtsp://192.168.1.10:554/user=admin&password=&channel=4&stream=0.sdp?starttime=2026_09_03_10_00_00&endtime=2026_09_03_12_00_00
-  file_test:
-    - http://192.168.1.10/idea0/2026-09-03/004/01.00.00-01.05.00[R][@2c993][3].h264
-  playback_active:
-    - http://192.168.1.10/idea0/2026-09-03/001/00.30.00-00.35.00[R][@2c4e3][1].h264
 
 webrtc:
   listen: ":8555"
   candidates:
+    - stun:8555
     - "stun:stun.l.google.com:19302"
