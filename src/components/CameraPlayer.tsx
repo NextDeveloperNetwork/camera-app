@@ -1,20 +1,22 @@
 "use client";
 
-import React, { useEffect, useRef, useState, useCallback } from "react";
+import React, { useRef, useEffect, useState, useCallback } from "react";
+import { CameraConfig, ConnectionStatus } from "@/lib/types";
 import {
+  Wifi,
+  WifiOff,
   Maximize2,
-  Minimize2,
   Volume2,
   VolumeX,
-  Camera,
   RotateCw,
+  Camera,
   Check,
-  Wifi,
   AlertCircle,
-  Expand,
   X,
+  Radio,
+  Expand,
+  Zap,
 } from "lucide-react";
-import { CameraConfig, ConnectionStatus } from "@/lib/types";
 
 interface CameraPlayerProps {
   camera: CameraConfig;
@@ -31,19 +33,25 @@ export function CameraPlayer({
 }: CameraPlayerProps) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const pcRef = useRef<RTCPeerConnection | null>(null);
+  const fallbackTimerRef = useRef<NodeJS.Timeout | null>(null);
 
   const [status, setStatus] = useState<ConnectionStatus>("connecting");
+  const [streamProtocol, setStreamProtocol] = useState<"webrtc" | "mp4">("webrtc");
   const [isMuted, setIsMuted] = useState(true);
+  const [errorMessage, setErrorMessage] = useState("");
   const [snapshotTaken, setSnapshotTaken] = useState(false);
   const [currentTime, setCurrentTime] = useState("");
-  const [errorMessage, setErrorMessage] = useState("");
 
-  // Live clock overlay
+  // Clock
   useEffect(() => {
     const tick = () => {
-      const d = new Date();
+      const now = new Date();
       setCurrentTime(
-        `${d.toISOString().slice(0, 10)} ${d.toLocaleTimeString("en-GB")}`
+        now.toLocaleTimeString("en-GB", {
+          hour: "2-digit",
+          minute: "2-digit",
+          second: "2-digit",
+        })
       );
     };
     tick();
@@ -51,23 +59,53 @@ export function CameraPlayer({
     return () => clearInterval(interval);
   }, []);
 
-  // WebRTC Cleanup
+  // Cleanup WebRTC
   const stopStream = useCallback(() => {
+    if (fallbackTimerRef.current) {
+      clearTimeout(fallbackTimerRef.current);
+      fallbackTimerRef.current = null;
+    }
     if (pcRef.current) {
       pcRef.current.close();
       pcRef.current = null;
     }
     if (videoRef.current) {
       videoRef.current.srcObject = null;
+      videoRef.current.removeAttribute("src");
+      videoRef.current.load();
     }
   }, []);
 
-  // WebRTC Connect via WHEP
-  const startStream = useCallback(async () => {
+  // Start Stream (WebRTC or MP4 HTTP stream)
+  const startStream = useCallback(async (forcedProtocol?: "webrtc" | "mp4") => {
     stopStream();
     setStatus("connecting");
     setErrorMessage("");
 
+    const activeProtocol = forcedProtocol || streamProtocol;
+
+    // ── PROTOCOL: MP4 Progressive HTTP Stream (100% Cloudflare Tunnel Compatible) ──
+    if (activeProtocol === "mp4") {
+      setStreamProtocol("mp4");
+      if (videoRef.current) {
+        const streamUrl = `/api/stream/stream.mp4?src=${encodeURIComponent(
+          camera.streamName
+        )}`;
+        videoRef.current.src = streamUrl;
+        videoRef.current.onloadedmetadata = () => {
+          setStatus("connected");
+          videoRef.current?.play().catch(() => {});
+        };
+        videoRef.current.onerror = () => {
+          setStatus("error");
+          setErrorMessage("Feed stream error");
+        };
+      }
+      return;
+    }
+
+    // ── PROTOCOL: WebRTC WHEP ──
+    setStreamProtocol("webrtc");
     try {
       const pc = new RTCPeerConnection({
         iceServers: [
@@ -93,10 +131,19 @@ export function CameraPlayer({
           pc.iceConnectionState === "failed" ||
           pc.iceConnectionState === "disconnected"
         ) {
-          setStatus("error");
-          setErrorMessage("Feed interrupted");
+          // If WebRTC fails (e.g. UDP blocked by tunnel), switch to MP4
+          console.warn("WebRTC UDP failed, switching to MP4 stream");
+          startStream("mp4");
         }
       };
+
+      // Watchdog: If WebRTC says connected but videoWidth stays 0 after 4 seconds (UDP blocked), auto-fallback to MP4
+      fallbackTimerRef.current = setTimeout(() => {
+        if (videoRef.current && videoRef.current.videoWidth === 0) {
+          console.warn("WebRTC has no video frames (UDP blocked), falling back to MP4 stream");
+          startStream("mp4");
+        }
+      }, 4000);
 
       const offer = await pc.createOffer();
       await pc.setLocalDescription(offer);
@@ -121,11 +168,11 @@ export function CameraPlayer({
         sdp: answerSdp,
       });
     } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : "Connection failed";
-      setStatus("error");
-      setErrorMessage(msg);
+      console.warn("WebRTC handshake failed, falling back to MP4 stream:", err);
+      // Immediately fallback to MP4 stream
+      startStream("mp4");
     }
-  }, [camera.streamName, stopStream]);
+  }, [camera.streamName, stopStream, streamProtocol]);
 
   useEffect(() => {
     startStream();
@@ -138,38 +185,32 @@ export function CameraPlayer({
   const handleSnapshot = (e?: React.MouseEvent) => {
     if (e) e.stopPropagation();
     const video = videoRef.current;
-    if (!video || !video.videoWidth) return;
+    if (!video) return;
 
     try {
       const canvas = document.createElement("canvas");
-      canvas.width = video.videoWidth;
-      canvas.height = video.videoHeight;
+      canvas.width = video.videoWidth || 1280;
+      canvas.height = video.videoHeight || 720;
       const ctx = canvas.getContext("2d");
       if (ctx) {
-        ctx.drawImage(video, 0, 0);
-        // Clean white/black CCTV badge on capture
-        ctx.fillStyle = "rgba(255, 255, 255, 0.9)";
-        ctx.fillRect(14, canvas.height - 44, 460, 30);
-        ctx.fillStyle = "#0f172a";
-        ctx.font = "bold 14px monospace";
-        ctx.fillText(
-          `${camera.name} | ${currentTime}`,
-          24,
-          canvas.height - 24
-        );
-
+        ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+        const dataUrl = canvas.toDataURL("image/jpeg", 0.95);
         const link = document.createElement("a");
-        const safeName = camera.name.replace(/[^a-zA-Z0-9]/g, "_");
-        link.download = `Snap_${safeName}_${Date.now()}.jpg`;
-        link.href = canvas.toDataURL("image/jpeg", 0.93);
+        link.download = `Snapshot_${camera.name}_${Date.now()}.jpg`;
+        link.href = dataUrl;
         link.click();
 
         setSnapshotTaken(true);
-        setTimeout(() => setSnapshotTaken(false), 2000);
+        setTimeout(() => setSnapshotTaken(false), 2500);
       }
     } catch (err) {
       console.error("Snapshot error:", err);
     }
+  };
+
+  const handleReconnect = (e?: React.MouseEvent) => {
+    if (e) e.stopPropagation();
+    startStream();
   };
 
   const toggleAudio = (e?: React.MouseEvent) => {
@@ -180,71 +221,64 @@ export function CameraPlayer({
     }
   };
 
-  const handleReconnect = (e?: React.MouseEvent) => {
+  // Toggle protocol explicitly
+  const toggleProtocol = (e?: React.MouseEvent) => {
     if (e) e.stopPropagation();
-    startStream();
+    const next = streamProtocol === "webrtc" ? "mp4" : "webrtc";
+    startStream(next);
   };
 
-  // Handle tap to expand
-  const handleCardClick = () => {
-    if (onToggleFullscreen && !isFullscreen) {
-      onToggleFullscreen();
-    }
-  };
+  const channelNum = camera.streamName.slice(-1) || "1";
 
   return (
     <div
-      className={`group relative flex flex-col rounded-2xl border border-slate-200/90 bg-white shadow-xs transition-all overflow-hidden ${
+      onClick={!isFullscreen ? onToggleFullscreen : undefined}
+      className={`group relative flex flex-col overflow-hidden bg-white transition-all ${
         isFullscreen
-          ? "fixed inset-0 z-50 rounded-none border-none h-screen w-screen bg-slate-950"
-          : "hover:shadow-md hover:border-slate-300"
+          ? "h-full w-full fixed inset-0 z-50 rounded-none bg-black"
+          : "rounded-2xl border border-slate-200 shadow-xs hover:shadow-md cursor-pointer"
       }`}
     >
-      {/* Top Header Bar on Card (Light style: White with black text) */}
+      {/* ── Top Camera Header ── */}
       {!isFullscreen && (
-        <div className="flex items-center justify-between px-3.5 py-2.5 bg-white border-b border-slate-100">
-          <div className="flex items-center gap-2">
+        <div className="flex items-center justify-between px-3.5 py-2 border-b border-slate-100 bg-white z-10">
+          <div className="flex items-center gap-2 truncate">
             <span
-              className={`h-2.5 w-2.5 rounded-full ${
+              className={`h-2.5 w-2.5 rounded-full shrink-0 transition-all ${
                 status === "connected"
-                  ? "bg-emerald-500"
-                  : "bg-amber-400 animate-pulse"
+                  ? "bg-emerald-500 shadow-xs ring-2 ring-emerald-100"
+                  : status === "connecting"
+                  ? "bg-amber-400 animate-pulse"
+                  : "bg-rose-500"
               }`}
             />
-            <span className="text-xs sm:text-sm font-bold text-slate-900 truncate max-w-[180px] sm:max-w-xs">
+            <span className="text-xs font-bold text-slate-800 truncate tracking-tight">
               {camera.name}
             </span>
           </div>
 
-          <div className="flex items-center gap-1">
+          <div className="flex items-center gap-1.5 shrink-0">
             {status === "connected" && (
-              <span className="inline-flex items-center gap-1 rounded-md bg-emerald-50 px-2 py-0.5 text-[11px] font-semibold text-emerald-700 border border-emerald-200">
+              <span className="flex items-center gap-1 rounded-md bg-emerald-50 px-2 py-0.5 text-[10px] font-bold text-emerald-700 border border-emerald-200">
                 LIVE
               </span>
             )}
-            {onToggleFullscreen && (
-              <button
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onToggleFullscreen();
-                }}
-                className="flex h-8 w-8 items-center justify-center rounded-lg text-slate-500 hover:bg-slate-100 hover:text-slate-900 transition-colors"
-                title="Tap to Expand"
-              >
-                <Expand className="h-4 w-4" />
-              </button>
-            )}
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                if (onToggleFullscreen) onToggleFullscreen();
+              }}
+              className="p-1 rounded-lg text-slate-400 hover:bg-slate-100 hover:text-slate-700 transition-colors"
+              title="Expand Camera"
+            >
+              <Maximize2 className="h-3.5 w-3.5" />
+            </button>
           </div>
         </div>
       )}
 
-      {/* Video Viewport: Tap to Expand */}
-      <div
-        onClick={handleCardClick}
-        className={`relative flex flex-1 items-center justify-center bg-black cursor-pointer overflow-hidden ${
-          isFullscreen ? "h-full w-full" : "aspect-video w-full"
-        }`}
-      >
+      {/* ── Video Viewport Area ── */}
+      <div className="relative flex-1 w-full bg-slate-950 flex items-center justify-center overflow-hidden aspect-video">
         <video
           ref={videoRef}
           autoPlay
@@ -255,13 +289,13 @@ export function CameraPlayer({
 
         {/* Connecting indicator */}
         {status === "connecting" && (
-          <div className="absolute inset-0 flex flex-col items-center justify-center bg-white/90 backdrop-blur-xs text-slate-800">
+          <div className="absolute inset-0 flex flex-col items-center justify-center bg-slate-950/80 backdrop-blur-xs text-white">
             <div className="relative flex h-10 w-10 items-center justify-center mb-2">
-              <div className="absolute h-10 w-10 animate-spin rounded-full border-2 border-slate-200 border-t-slate-900" />
-              <Wifi className="h-4 w-4 text-slate-900" />
+              <div className="absolute h-10 w-10 animate-spin rounded-full border-2 border-slate-700 border-t-emerald-400" />
+              <Wifi className="h-4 w-4 text-emerald-400" />
             </div>
-            <p className="font-medium text-xs text-slate-900">Loading feed…</p>
-            <p className="text-[10px] text-slate-500">{camera.name}</p>
+            <p className="font-medium text-xs text-white">Connecting live feed…</p>
+            <p className="text-[10px] text-slate-400">{camera.name}</p>
           </div>
         )}
 
@@ -269,9 +303,9 @@ export function CameraPlayer({
         {status === "error" && (
           <div className="absolute inset-0 flex flex-col items-center justify-center bg-slate-900/90 p-4 text-center text-white">
             <AlertCircle className="h-7 w-7 text-amber-400 mb-1.5" />
-            <p className="text-xs font-semibold">Feed Unavailable</p>
+            <p className="text-xs font-semibold">Feed Interrupted</p>
             <p className="text-[11px] text-slate-400 max-w-xs mt-0.5">
-              {errorMessage || "Connection failed. Tap to reconnect."}
+              {errorMessage || "Unable to establish stream connection"}
             </p>
             <button
               onClick={handleReconnect}
@@ -284,17 +318,17 @@ export function CameraPlayer({
 
         {/* Snapshot feedback pill */}
         {snapshotTaken && (
-          <div className="absolute inset-x-0 top-3 flex justify-center pointer-events-none">
+          <div className="absolute inset-x-0 top-3 flex justify-center pointer-events-none z-30">
             <div className="flex items-center gap-1.5 rounded-full bg-white/95 px-3.5 py-1 text-xs font-semibold text-slate-900 shadow-lg border border-slate-200">
               <Check className="h-3.5 w-3.5 text-emerald-600" /> Snapshot Saved
             </div>
           </div>
         )}
 
-        {/* "Tap to Expand" hint pill on mobile/small screen (shows briefly on hover) */}
+        {/* "Tap to Expand" hint pill */}
         {!isFullscreen && (
-          <div className="absolute bottom-2.5 right-2.5 opacity-80 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity pointer-events-none">
-            <span className="flex items-center gap-1 rounded-md bg-white/90 px-2 py-1 text-[10px] font-semibold text-slate-800 shadow-xs backdrop-blur-xs border border-slate-200">
+          <div className="absolute bottom-2.5 right-2.5 opacity-80 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity pointer-events-none z-10">
+            <span className="flex items-center gap-1 rounded-md bg-black/70 px-2 py-1 text-[10px] font-semibold text-white shadow-xs backdrop-blur-xs border border-white/10">
               <Expand className="h-3 w-3" /> Tap to expand
             </span>
           </div>
@@ -303,28 +337,24 @@ export function CameraPlayer({
         {/* Fullscreen Overlay Controls (when expanded) */}
         {isFullscreen && (
           <>
-            {/* Top Fullscreen Bar (Light Header Overlay) */}
-            <div className="absolute top-0 inset-x-0 z-20 flex items-center justify-between bg-white/95 px-4 py-3 border-b border-slate-200 shadow-sm backdrop-blur-md">
+            <div className="absolute top-0 inset-x-0 z-20 flex items-center justify-between bg-black/80 px-4 py-3 border-b border-white/10 shadow-sm backdrop-blur-md text-white">
               <div className="flex items-center gap-2">
                 <span className="h-2.5 w-2.5 rounded-full bg-emerald-500" />
-                <span className="text-sm font-bold text-slate-900">
+                <span className="text-sm font-bold text-white">
                   {camera.name}
                 </span>
-                <span className="text-xs text-slate-500 hidden sm:inline">
+                <span className="text-xs text-slate-400 hidden sm:inline">
                   [{camera.location || "Live"}]
                 </span>
               </div>
 
               <div className="flex items-center gap-2">
-                <span className="font-mono text-xs text-slate-600 hidden sm:inline">
-                  {currentTime}
-                </span>
                 <button
                   onClick={(e) => {
                     e.stopPropagation();
                     if (onToggleFullscreen) onToggleFullscreen();
                   }}
-                  className="flex h-9 w-9 items-center justify-center rounded-xl bg-slate-100 text-slate-800 hover:bg-slate-200 transition-colors shadow-xs"
+                  className="flex h-9 w-9 items-center justify-center rounded-xl bg-white/10 text-white hover:bg-white/20 transition-colors shadow-xs"
                   title="Close Fullscreen"
                 >
                   <X className="h-5 w-5" />
@@ -334,65 +364,61 @@ export function CameraPlayer({
 
             {/* Bottom Fullscreen Floating Action Bar */}
             <div className="absolute bottom-5 inset-x-0 z-20 flex justify-center px-4 pointer-events-none">
-              <div className="flex items-center gap-2 rounded-2xl bg-white/95 px-4 py-2 shadow-xl border border-slate-200 backdrop-blur-md pointer-events-auto">
+              <div className="flex items-center gap-2 rounded-2xl bg-black/80 px-4 py-2 shadow-xl border border-white/10 backdrop-blur-md pointer-events-auto text-white">
                 <button
                   onClick={toggleAudio}
-                  className="flex h-10 w-10 items-center justify-center rounded-xl text-slate-700 hover:bg-slate-100 hover:text-slate-950 transition-colors"
+                  className="flex h-10 w-10 items-center justify-center rounded-xl text-white/80 hover:bg-white/10 transition-colors"
                   title={isMuted ? "Unmute Audio" : "Mute Audio"}
                 >
                   {isMuted ? (
                     <VolumeX className="h-5 w-5" />
                   ) : (
-                    <Volume2 className="h-5 w-5 text-emerald-600" />
+                    <Volume2 className="h-5 w-5 text-emerald-400" />
                   )}
                 </button>
 
                 <button
                   onClick={handleSnapshot}
-                  className="flex items-center gap-2 rounded-xl bg-slate-900 px-4 py-2 text-xs font-semibold text-white hover:bg-slate-800 transition-colors shadow-xs"
-                  title="Take High-Res Snapshot"
+                  className="flex h-10 w-10 items-center justify-center rounded-xl text-white/80 hover:bg-white/10 transition-colors"
+                  title="Take Snapshot"
                 >
-                  <Camera className="h-4 w-4" />
-                  <span>Snapshot</span>
+                  <Camera className="h-5 w-5" />
                 </button>
 
                 <button
                   onClick={handleReconnect}
-                  className="flex h-10 w-10 items-center justify-center rounded-xl text-slate-700 hover:bg-slate-100 hover:text-slate-950 transition-colors"
-                  title="Refresh Feed"
+                  className="flex h-10 w-10 items-center justify-center rounded-xl text-white/80 hover:bg-white/10 transition-colors"
+                  title="Reconnect"
                 >
-                  <RotateCw className="h-4 w-4" />
+                  <RotateCw className="h-5 w-5" />
                 </button>
-
-                {onToggleFullscreen && (
-                  <button
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      onToggleFullscreen();
-                    }}
-                    className="flex h-10 w-10 items-center justify-center rounded-xl text-slate-700 hover:bg-slate-100 hover:text-slate-950 transition-colors"
-                    title="Exit Fullscreen"
-                  >
-                    <Minimize2 className="h-5 w-5" />
-                  </button>
-                )}
               </div>
             </div>
           </>
         )}
       </div>
 
-      {/* Quick Action Footer on Card (Light style: White with black text) */}
+      {/* ── Bottom Card Toolbar ── */}
       {!isFullscreen && (
-        <div className="flex items-center justify-between px-3 py-2 bg-white border-t border-slate-100">
-          <span className="font-mono text-[11px] text-slate-500">
-            CH:{camera.streamName.slice(-1)} &bull; WebRTC
-          </span>
+        <div className="flex items-center justify-between px-3 py-1.5 border-t border-slate-100 bg-white text-slate-500 text-[11px] font-mono z-10">
+          {/* Stream protocol indicator / switcher */}
+          <div className="flex items-center gap-1.5">
+            <span>CH:{channelNum}</span>
+            <span>&bull;</span>
+            <button
+              onClick={toggleProtocol}
+              className="flex items-center gap-1 font-bold text-[10px] text-slate-700 hover:text-slate-950 transition-colors bg-slate-100 px-1.5 py-0.5 rounded border border-slate-200"
+              title="Click to switch between WebRTC and MP4 stream"
+            >
+              <Zap className="h-3 w-3 text-amber-500" />
+              <span>{streamProtocol === "webrtc" ? "WebRTC" : "MP4 Stream"}</span>
+            </button>
+          </div>
 
           <div className="flex items-center gap-1">
             <button
               onClick={toggleAudio}
-              className="flex h-7 w-7 items-center justify-center rounded-lg text-slate-500 hover:bg-slate-100 hover:text-slate-900 transition-colors"
+              className="p-1 rounded hover:bg-slate-100 text-slate-500 hover:text-slate-800 transition-colors"
               title={isMuted ? "Unmute" : "Mute"}
             >
               {isMuted ? (
@@ -404,17 +430,17 @@ export function CameraPlayer({
 
             <button
               onClick={handleSnapshot}
-              className="flex h-7 items-center gap-1 px-2 rounded-lg text-xs font-medium text-slate-700 hover:bg-slate-100 hover:text-slate-950 transition-colors"
-              title="Snapshot"
+              className="flex items-center gap-1 px-1.5 py-0.5 rounded hover:bg-slate-100 text-slate-500 hover:text-slate-800 transition-colors"
+              title="Take Snapshot"
             >
               <Camera className="h-3.5 w-3.5" />
-              <span className="text-[11px]">Snap</span>
+              <span className="text-[10px]">Snap</span>
             </button>
 
             <button
               onClick={handleReconnect}
-              className="flex h-7 w-7 items-center justify-center rounded-lg text-slate-500 hover:bg-slate-100 hover:text-slate-900 transition-colors"
-              title="Reconnect"
+              className="p-1 rounded hover:bg-slate-100 text-slate-500 hover:text-slate-800 transition-colors"
+              title="Refresh Stream"
             >
               <RotateCw className="h-3.5 w-3.5" />
             </button>
