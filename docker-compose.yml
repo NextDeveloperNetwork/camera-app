@@ -1,0 +1,28 @@
+services:
+  web:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: cameraview-web
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      - NODE_ENV=production
+      - GO2RTC_URL=http://stream-server:1984
+      - PORT=3000
+    depends_on:
+      - stream-server
+
+  stream-server:
+    image: alexxit/go2rtc:latest
+    container_name: cameraview-go2rtc
+    restart: unless-stopped
+    volumes:
+      - ./go2rtc.yaml:/config/go2rtc.yaml:ro
+    ports:
+      - "1984:1984"       # Web UI, API, MSE, WebRTC HTTP
+      - "8555:8555/tcp"   # WebRTC signaling
+      - "8555:8555/udp"   # WebRTC media
+    # If Proxmox network requires host networking for local RTSP discovery, uncomment:
+    # network_mode: host
