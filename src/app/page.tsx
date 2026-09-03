@@ -1,6 +1,9 @@
 "use client";
 
 import React, { useState, useEffect } from "react";
+
+const STORAGE_KEY = "cameraview_configs";
+const STORAGE_VERSION = "v3"; // bump this when DEFAULT_CAMERAS changes
 import { Header } from "@/components/Header";
 import { CameraGrid } from "@/components/CameraGrid";
 import { CameraSettingsModal } from "@/components/CameraSettingsModal";
@@ -17,7 +20,14 @@ export default function Home() {
   // Load user saved camera configurations from localStorage if any
   useEffect(() => {
     setIsMounted(true);
-    const saved = localStorage.getItem("cameraview_configs");
+    // If storage version doesn't match, clear stale data
+    const storedVersion = localStorage.getItem(STORAGE_KEY + "_version");
+    if (storedVersion !== STORAGE_VERSION) {
+      localStorage.removeItem(STORAGE_KEY);
+      localStorage.setItem(STORAGE_KEY + "_version", STORAGE_VERSION);
+      return; // use DEFAULT_CAMERAS
+    }
+    const saved = localStorage.getItem(STORAGE_KEY);
     if (saved) {
       try {
         const parsed = JSON.parse(saved);
@@ -32,7 +42,8 @@ export default function Home() {
 
   const handleSaveCameras = (updated: CameraConfig[]) => {
     setCameras(updated);
-    localStorage.setItem("cameraview_configs", JSON.stringify(updated));
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
+    localStorage.setItem(STORAGE_KEY + "_version", STORAGE_VERSION);
     setRefreshTrigger((prev) => prev + 1);
   };
 

@@ -5,16 +5,12 @@ api:
 streams:
   camera_channel_1:
     - "rtsp://192.168.1.10:554/user=admin&password=&channel=1&stream=0.sdp"
-    - "ffmpeg:camera_channel_1#video=h264#hardware"
   camera_channel_2:
     - "rtsp://192.168.1.10:554/user=admin&password=&channel=2&stream=0.sdp"
-    - "ffmpeg:camera_channel_2#video=h264#hardware"
   camera_channel_3:
     - "rtsp://192.168.1.10:554/user=admin&password=&channel=3&stream=0.sdp"
-    - "ffmpeg:camera_channel_3#video=h264#hardware"
   camera_channel_4:
     - "rtsp://192.168.1.10:554/user=admin&password=&channel=4&stream=0.sdp"
-    - "ffmpeg:camera_channel_4#video=h264#hardware"
 
 webrtc:
   listen: ":8555"
