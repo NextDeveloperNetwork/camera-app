@@ -4,14 +4,11 @@ import React, { useRef, useEffect, useState, useCallback } from "react";
 import { CameraConfig } from "@/lib/types";
 import {
   X,
+  Camera,
   ChevronLeft,
   ChevronRight,
-  Camera,
-  Volume2,
-  VolumeX,
-  RotateCw,
-  Check,
   Radio,
+  Check,
 } from "lucide-react";
 
 interface FullscreenCameraModalProps {
@@ -31,31 +28,52 @@ export function FullscreenCameraModal({
 }: FullscreenCameraModalProps) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const pcRef = useRef<RTCPeerConnection | null>(null);
-  const [isMuted, setIsMuted] = useState(true);
+  const fallbackTimerRef = useRef<NodeJS.Timeout | null>(null);
   const [snapshotTaken, setSnapshotTaken] = useState(false);
-  const [currentTime, setCurrentTime] = useState("");
+  const [showControls, setShowControls] = useState(true);
 
+  // Auto-hide controls after 4 seconds of inactivity
   useEffect(() => {
-    const updateTime = () => {
-      const d = new Date();
-      setCurrentTime(
-        `${d.toISOString().slice(0, 10)} ${d.toLocaleTimeString("en-GB")}`
-      );
-    };
-    updateTime();
-    const interval = setInterval(updateTime, 1000);
-    return () => clearInterval(interval);
-  }, []);
+    if (!showControls) return;
+    const timer = setTimeout(() => setShowControls(false), 4000);
+    return () => clearTimeout(timer);
+  }, [showControls]);
+
+  const toggleControls = () => {
+    setShowControls((prev) => !prev);
+  };
 
   const stop = useCallback(() => {
+    if (fallbackTimerRef.current) {
+      clearTimeout(fallbackTimerRef.current);
+      fallbackTimerRef.current = null;
+    }
     if (pcRef.current) {
       pcRef.current.close();
       pcRef.current = null;
     }
     if (videoRef.current) {
       videoRef.current.srcObject = null;
+      videoRef.current.removeAttribute("src");
+      videoRef.current.load();
     }
   }, []);
+
+  const startMp4Stream = useCallback(() => {
+    if (pcRef.current) {
+      pcRef.current.close();
+      pcRef.current = null;
+    }
+    if (videoRef.current) {
+      const streamUrl = `/api/stream/stream.mp4?src=${encodeURIComponent(
+        camera.streamName
+      )}`;
+      videoRef.current.src = streamUrl;
+      videoRef.current.onloadedmetadata = () => {
+        videoRef.current?.play().catch(() => {});
+      };
+    }
+  }, [camera.streamName]);
 
   const start = useCallback(async () => {
     stop();
@@ -79,6 +97,22 @@ export function FullscreenCameraModal({
         }
       };
 
+      pc.oniceconnectionstatechange = () => {
+        if (
+          pc.iceConnectionState === "failed" ||
+          pc.iceConnectionState === "disconnected"
+        ) {
+          startMp4Stream();
+        }
+      };
+
+      // Watchdog: If WebRTC has no video frames after 3.5s (UDP blocked), fallback to MP4 stream
+      fallbackTimerRef.current = setTimeout(() => {
+        if (videoRef.current && videoRef.current.videoWidth === 0) {
+          startMp4Stream();
+        }
+      }, 3500);
+
       const offer = await pc.createOffer();
       await pc.setLocalDescription(offer);
 
@@ -95,10 +129,10 @@ export function FullscreenCameraModal({
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
       const answerSdp = await response.text();
       await pc.setRemoteDescription({ type: "answer", sdp: answerSdp });
-    } catch (err) {
-      console.error("Fullscreen WebRTC connect error:", err);
+    } catch {
+      startMp4Stream();
     }
-  }, [camera.streamName, stop]);
+  }, [camera.streamName, startMp4Stream, stop]);
 
   useEffect(() => {
     start();
@@ -128,22 +162,14 @@ export function FullscreenCameraModal({
       const ctx = canvas.getContext("2d");
       if (ctx) {
         ctx.drawImage(video, 0, 0);
-        ctx.fillStyle = "rgba(255, 255, 255, 0.9)";
-        ctx.fillRect(14, canvas.height - 44, 460, 30);
-        ctx.fillStyle = "#0f172a";
-        ctx.font = "bold 14px monospace";
-        ctx.fillText(
-          `${camera.name} | ${currentTime}`,
-          24,
-          canvas.height - 24
-        );
+        const dataUrl = canvas.toDataURL("image/jpeg", 0.95);
         const link = document.createElement("a");
-        const safeName = camera.name.replace(/[^a-zA-Z0-9]/g, "_");
-        link.download = `Snap_${safeName}_${Date.now()}.jpg`;
-        link.href = canvas.toDataURL("image/jpeg", 0.93);
+        link.download = `Snapshot_${camera.name}_${Date.now()}.jpg`;
+        link.href = dataUrl;
         link.click();
+
         setSnapshotTaken(true);
-        setTimeout(() => setSnapshotTaken(false), 2000);
+        setTimeout(() => setSnapshotTaken(false), 2500);
       }
     } catch (err) {
       console.error("Snapshot error:", err);
@@ -151,106 +177,105 @@ export function FullscreenCameraModal({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex flex-col bg-slate-950 animate-fadeIn">
-      {/* Top Header Bar */}
-      <div className="flex items-center justify-between bg-white px-4 py-3 border-b border-slate-200 z-20">
+    <div
+      onClick={toggleControls}
+      className="fixed inset-0 z-50 flex flex-col bg-black select-none"
+    >
+      {/* Top Floating Control Bar */}
+      <div
+        onClick={(e) => e.stopPropagation()}
+        className={`absolute top-0 inset-x-0 z-30 flex items-center justify-between px-4 py-3 bg-gradient-to-b from-black/80 to-transparent transition-opacity duration-300 ${
+          showControls ? "opacity-100" : "opacity-0 pointer-events-none"
+        }`}
+      >
         <div className="flex items-center gap-2">
-          <span className="flex items-center gap-1 rounded-full bg-lime-50 px-2 py-0.5 text-[11px] font-bold text-lime-700 border border-lime-200">
-            <Radio className="h-2.5 w-2.5 animate-pulse" /> LIVE
-          </span>
-          <h2 className="text-sm font-bold text-slate-900">{camera.name}</h2>
-        </div>
-
-        <div className="flex items-center gap-2">
-          <span className="text-xs font-mono text-slate-500 hidden sm:inline">
-            {currentTime}
-          </span>
           <button
             onClick={onClose}
-            className="flex h-8 w-8 items-center justify-center rounded-lg bg-slate-100 text-slate-700 hover:bg-slate-200 active:scale-95 transition-all"
-            title="Close Fullscreen"
+            className="flex h-9 w-9 items-center justify-center rounded-full bg-black/50 text-white/90 backdrop-blur-md border border-white/10 active:scale-95 transition-all"
+            title="Back to Grid"
           >
-            <X className="h-5 w-5" />
+            <ChevronLeft className="h-5 w-5" />
           </button>
+          <div className="flex items-center gap-1.5 bg-black/50 px-3 py-1 rounded-full border border-white/10 backdrop-blur-md">
+            <Radio className="h-3 w-3 text-[#84cc16] fill-current animate-pulse" />
+            <span className="text-xs font-bold text-white tracking-wide">
+              {camera.name}
+            </span>
+          </div>
         </div>
+
+        <button
+          onClick={onClose}
+          className="flex h-9 w-9 items-center justify-center rounded-full bg-black/50 text-white/90 backdrop-blur-md border border-white/10 active:scale-95 transition-all"
+          title="Close Fullscreen"
+        >
+          <X className="h-5 w-5" />
+        </button>
       </div>
 
       {/* Main Video Surface */}
-      <div className="relative flex flex-1 items-center justify-center bg-black overflow-hidden">
+      <div className="relative flex-1 flex items-center justify-center overflow-hidden">
         <video
           ref={videoRef}
           autoPlay
           playsInline
-          muted={isMuted}
+          muted
           className="h-full w-full object-contain pointer-events-none"
         />
 
-        {/* Previous Camera Button */}
-        {allCameras.length > 1 && (
-          <button
-            onClick={handlePrev}
-            className="absolute left-3 top-1/2 -translate-y-1/2 z-20 flex h-10 w-10 items-center justify-center rounded-full bg-white/90 text-slate-900 shadow-md backdrop-blur-xs hover:bg-white active:scale-95 transition-all"
-            title="Previous Camera"
-          >
-            <ChevronLeft className="h-6 w-6" />
-          </button>
-        )}
-
-        {/* Next Camera Button */}
-        {allCameras.length > 1 && (
-          <button
-            onClick={handleNext}
-            className="absolute right-3 top-1/2 -translate-y-1/2 z-20 flex h-10 w-10 items-center justify-center rounded-full bg-white/90 text-slate-900 shadow-md backdrop-blur-xs hover:bg-white active:scale-95 transition-all"
-            title="Next Camera"
-          >
-            <ChevronRight className="h-6 w-6" />
-          </button>
-        )}
-
         {/* Snapshot feedback pill */}
         {snapshotTaken && (
-          <div className="absolute top-4 inset-x-0 flex justify-center pointer-events-none z-30">
-            <div className="flex items-center gap-1.5 rounded-full bg-white/95 px-3.5 py-1 text-xs font-semibold text-slate-900 shadow-lg border border-slate-200">
-              <Check className="h-3.5 w-3.5 text-lime-600" /> Snapshot Saved
+          <div className="absolute top-16 inset-x-0 flex justify-center pointer-events-none z-30">
+            <div className="flex items-center gap-1.5 rounded-full bg-white/95 px-4 py-1.5 text-xs font-bold text-slate-900 shadow-xl border border-slate-200">
+              <Check className="h-4 w-4 text-emerald-600" /> Snapshot Saved
             </div>
           </div>
         )}
+
+        {/* Left / Right Camera Switchers */}
+        {showControls && (
+          <>
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                handlePrev();
+              }}
+              className="absolute left-3 top-1/2 -translate-y-1/2 flex h-10 w-10 items-center justify-center rounded-full bg-black/50 text-white/80 border border-white/10 backdrop-blur-md active:scale-90 transition-all"
+              title="Previous Camera"
+            >
+              <ChevronLeft className="h-6 w-6" />
+            </button>
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                handleNext();
+              }}
+              className="absolute right-3 top-1/2 -translate-y-1/2 flex h-10 w-10 items-center justify-center rounded-full bg-black/50 text-white/80 border border-white/10 backdrop-blur-md active:scale-90 transition-all"
+              title="Next Camera"
+            >
+              <ChevronRight className="h-6 w-6" />
+            </button>
+          </>
+        )}
       </div>
 
-      {/* Floating Bottom Action Toolbar */}
-      <div className="bg-white border-t border-slate-200 py-2.5 px-6 flex items-center justify-center gap-4 z-20">
-        <button
-          onClick={() => {
-            if (videoRef.current) {
-              videoRef.current.muted = !isMuted;
-              setIsMuted(!isMuted);
-            }
-          }}
-          className="flex h-10 w-10 items-center justify-center rounded-xl bg-slate-100 text-slate-700 hover:bg-slate-200 active:scale-95 transition-all"
-          title={isMuted ? "Unmute" : "Mute"}
-        >
-          {isMuted ? (
-            <VolumeX className="h-5 w-5" />
-          ) : (
-            <Volume2 className="h-5 w-5 text-lime-600" />
-          )}
-        </button>
-
-        <button
-          onClick={handleSnapshot}
-          className="flex items-center gap-2 rounded-xl bg-[#84cc16] px-5 py-2 text-xs font-bold text-white shadow-sm hover:opacity-90 active:scale-95 transition-all"
-        >
-          <Camera className="h-4 w-4" />
-          <span>Snapshot</span>
-        </button>
-
-        <button
-          onClick={start}
-          className="flex h-10 w-10 items-center justify-center rounded-xl bg-slate-100 text-slate-700 hover:bg-slate-200 active:scale-95 transition-all"
-          title="Reconnect"
-        >
-          <RotateCw className="h-5 w-5" />
-        </button>
+      {/* Bottom Floating Action Bar */}
+      <div
+        onClick={(e) => e.stopPropagation()}
+        className={`absolute bottom-6 inset-x-0 z-30 flex items-center justify-center gap-4 px-4 transition-opacity duration-300 ${
+          showControls ? "opacity-100" : "opacity-0 pointer-events-none"
+        }`}
+      >
+        <div className="flex items-center gap-3 bg-black/60 px-5 py-2 rounded-full border border-white/15 backdrop-blur-md shadow-2xl">
+          <button
+            onClick={handleSnapshot}
+            className="flex items-center gap-1.5 text-xs font-bold text-white/90 hover:text-white active:scale-95 transition-all"
+            title="Take Snapshot"
+          >
+            <Camera className="h-4 w-4 text-[#84cc16]" />
+            <span>Snapshot</span>
+          </button>
+        </div>
       </div>
     </div>
   );

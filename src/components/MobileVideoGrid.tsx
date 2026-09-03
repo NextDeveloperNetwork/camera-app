@@ -76,19 +76,52 @@ function SingleCameraCell({
 }: SingleCameraCellProps) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const pcRef = useRef<RTCPeerConnection | null>(null);
+  const fallbackTimerRef = useRef<NodeJS.Timeout | null>(null);
+
   const [isConnected, setIsConnected] = useState(false);
   const [isError, setIsError] = useState(false);
   const lastTapRef = useRef<number>(0);
 
   const stop = useCallback(() => {
+    if (fallbackTimerRef.current) {
+      clearTimeout(fallbackTimerRef.current);
+      fallbackTimerRef.current = null;
+    }
     if (pcRef.current) {
       pcRef.current.close();
       pcRef.current = null;
     }
     if (videoRef.current) {
       videoRef.current.srcObject = null;
+      videoRef.current.removeAttribute("src");
+      videoRef.current.load();
     }
   }, []);
+
+  // Start HTTP MP4 stream fallback
+  const startMp4Stream = useCallback(() => {
+    if (pcRef.current) {
+      pcRef.current.close();
+      pcRef.current = null;
+    }
+    if (videoRef.current) {
+      const streamUrl = `/api/stream/stream.mp4?src=${encodeURIComponent(
+        camera.streamName
+      )}`;
+      videoRef.current.src = streamUrl;
+      videoRef.current.onloadedmetadata = () => {
+        setIsConnected(true);
+        setIsError(false);
+        if (!isPaused) {
+          videoRef.current?.play().catch(() => {});
+        }
+      };
+      videoRef.current.onerror = () => {
+        setIsError(true);
+        setIsConnected(false);
+      };
+    }
+  }, [camera.streamName, isPaused]);
 
   const start = useCallback(async () => {
     stop();
@@ -122,10 +155,18 @@ function SingleCameraCell({
           pc.iceConnectionState === "failed" ||
           pc.iceConnectionState === "disconnected"
         ) {
-          setIsConnected(false);
-          setIsError(true);
+          console.warn(`[MobileGrid] WebRTC failed for ${camera.streamName}, switching to MP4 stream`);
+          startMp4Stream();
         }
       };
+
+      // Watchdog: If WebRTC has no video frames after 3.5s (UDP blocked by Cloudflare Tunnel), auto-fallback to MP4
+      fallbackTimerRef.current = setTimeout(() => {
+        if (videoRef.current && videoRef.current.videoWidth === 0) {
+          console.warn(`[MobileGrid] No WebRTC frames for ${camera.streamName}, falling back to MP4 stream`);
+          startMp4Stream();
+        }
+      }, 3500);
 
       const offer = await pc.createOffer();
       await pc.setLocalDescription(offer);
@@ -140,15 +181,17 @@ function SingleCameraCell({
         body: offer.sdp,
       });
 
-      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}`);
+      }
 
       const answerSdp = await response.text();
       await pc.setRemoteDescription({ type: "answer", sdp: answerSdp });
     } catch {
-      setIsConnected(false);
-      setIsError(true);
+      // Fallback to MP4 immediately if WebRTC fails
+      startMp4Stream();
     }
-  }, [camera.streamName, isPaused, stop]);
+  }, [camera.streamName, isPaused, startMp4Stream, stop]);
 
   useEffect(() => {
     start();
@@ -168,10 +211,9 @@ function SingleCameraCell({
   }, [isPaused, isConnected]);
 
   // Tap & Double Tap Handler
-  const handleTap = () => {
+  const handleClick = () => {
     const now = Date.now();
-    const DOUBLE_TAP_DELAY = 300;
-    if (now - lastTapRef.current < DOUBLE_TAP_DELAY) {
+    if (now - lastTapRef.current < 300) {
       onDoubleTap();
     } else {
       onSelect();
@@ -179,11 +221,15 @@ function SingleCameraCell({
     lastTapRef.current = now;
   };
 
+  const channelNumber = camera.streamName.slice(-1);
+
   return (
     <div
-      onClick={handleTap}
-      className={`relative flex items-center justify-center bg-black cursor-pointer select-none overflow-hidden transition-all ${
-        isSelected ? "ring-2 ring-inset ring-lime-500" : ""
+      onClick={handleClick}
+      className={`relative h-full w-full bg-black overflow-hidden cursor-pointer select-none transition-all ${
+        isSelected
+          ? "ring-2 ring-[#84cc16] ring-inset z-10"
+          : "hover:opacity-95"
       }`}
     >
       <video
@@ -194,33 +240,47 @@ function SingleCameraCell({
         className="h-full w-full object-cover pointer-events-none"
       />
 
-      {/* Top Camera Label Badge matching screenshot */}
-      <div className="absolute top-1.5 left-1.5 pointer-events-none z-10">
+      {/* Top Left Camera Pill Badge */}
+      <div className="absolute top-2 left-2 flex items-center gap-1.5 z-20 pointer-events-none">
         <span
-          className={`inline-block rounded-xs px-1.5 py-0.5 text-[9px] sm:text-[10px] font-semibold tracking-tight shadow-xs ${
+          className={`flex items-center gap-1 rounded-md px-2 py-0.5 text-[10px] font-bold tracking-wide shadow-md transition-colors ${
             isSelected
-              ? "bg-[#84cc16] text-white"
-              : "bg-black/55 text-slate-100 backdrop-blur-xs"
+              ? "bg-[#84cc16] text-black"
+              : "bg-black/65 text-white/90 backdrop-blur-xs"
           }`}
         >
-          {camera.name.split(" - ")[0]}
+          {isSelected && (
+            <Radio className="h-2.5 w-2.5 fill-current animate-pulse" />
+          )}
+          <span>{camera.name.split(" - ")[0]}</span>
         </span>
       </div>
 
-      {/* Connecting status */}
+      {/* Channel Number Overlay (bottom-left) */}
+      <div className="absolute bottom-1.5 left-2 z-10 pointer-events-none">
+        <span className="font-mono text-[9px] font-semibold text-white/70 bg-black/40 px-1.5 py-0.5 rounded backdrop-blur-xs">
+          CH{channelNumber}
+        </span>
+      </div>
+
+      {/* Connection Loading State */}
       {!isConnected && !isError && (
-        <div className="absolute inset-0 flex flex-col items-center justify-center bg-black/60 text-white backdrop-blur-xs">
-          <div className="h-5 w-5 animate-spin rounded-full border-2 border-slate-400 border-t-white" />
+        <div className="absolute inset-0 flex flex-col items-center justify-center bg-black/60 backdrop-blur-xs">
+          <div className="h-5 w-5 animate-spin rounded-full border-2 border-slate-600 border-t-[#84cc16] mb-1.5" />
+          <span className="text-[10px] font-medium text-white/80">
+            Connecting…
+          </span>
         </div>
       )}
 
-      {/* Error status */}
+      {/* Connection Error State */}
       {isError && (
-        <div className="absolute inset-0 flex items-center justify-center bg-black/80 text-white p-2 text-center">
-          <div className="flex flex-col items-center">
-            <AlertCircle className="h-5 w-5 text-amber-400 mb-1" />
-            <span className="text-[10px] text-slate-300">Offline</span>
-          </div>
+        <div className="absolute inset-0 flex flex-col items-center justify-center bg-black/80 p-2 text-center text-white/80">
+          <AlertCircle className="h-5 w-5 text-amber-400 mb-1" />
+          <span className="text-[10px] font-bold text-white">No Feed</span>
+          <span className="text-[8px] text-white/50 mt-0.5 font-mono">
+            Tap to retry
+          </span>
         </div>
       )}
     </div>
