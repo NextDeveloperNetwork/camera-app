@@ -5,15 +5,28 @@ const getGo2RtcUrl = () => {
   return process.env.GO2RTC_URL || "http://127.0.0.1:1984";
 };
 
-// Ensure a camera stream exists in go2rtc
+// Ensure a camera stream exists in go2rtc (mainstream or substream)
 async function ensureStreamRegistered(src: string, baseUrl: string) {
-  const cam = DEFAULT_CAMERAS.find((c) => c.streamName === src);
-  if (cam && cam.rtspUrl) {
+  let streamUrl = "";
+  if (src.endsWith("_sub")) {
+    const mainSrc = src.replace("_sub", "");
+    const cam = DEFAULT_CAMERAS.find((c) => c.streamName === mainSrc);
+    if (cam) {
+      streamUrl = cam.rtspUrl.replace("stream=0.sdp", "stream=1.sdp");
+    }
+  } else {
+    const cam = DEFAULT_CAMERAS.find((c) => c.streamName === src);
+    if (cam) {
+      streamUrl = cam.rtspUrl;
+    }
+  }
+
+  if (streamUrl) {
     try {
       await fetch(
         `${baseUrl}/api/streams?name=${encodeURIComponent(
           src
-        )}&src=${encodeURIComponent(cam.rtspUrl)}`,
+        )}&src=${encodeURIComponent(streamUrl)}`,
         { method: "PUT" }
       );
     } catch (e) {
@@ -22,7 +35,7 @@ async function ensureStreamRegistered(src: string, baseUrl: string) {
   }
 }
 
-// Handle all GET requests (snapshots, streams, status)
+// Handle all GET requests (snapshots, progressive mp4 streams, status)
 export async function GET(
   request: NextRequest,
   { params }: { params: Promise<{ path: string[] }> }
@@ -35,6 +48,10 @@ export async function GET(
   const targetUrl = `${baseUrl}/api/${path}${searchParams ? `?${searchParams}` : ""}`;
 
   try {
+    if (src) {
+      await ensureStreamRegistered(src, baseUrl);
+    }
+
     let response = await fetch(targetUrl, {
       method: "GET",
       headers: {
@@ -43,7 +60,6 @@ export async function GET(
       cache: "no-store",
     });
 
-    // If stream not found (404), auto-register in go2rtc and retry
     if (response.status === 404 && src) {
       await ensureStreamRegistered(src, baseUrl);
       response = await fetch(targetUrl, {
@@ -99,7 +115,6 @@ export async function POST(
   try {
     const body = await request.text();
 
-    // Auto-register stream in go2rtc before connection if missing
     if (src) {
       await ensureStreamRegistered(src, baseUrl);
     }
@@ -113,7 +128,6 @@ export async function POST(
       cache: "no-store",
     });
 
-    // If 404, force re-register and retry
     if (response.status === 404 && src) {
       await ensureStreamRegistered(src, baseUrl);
       response = await fetch(targetUrl, {

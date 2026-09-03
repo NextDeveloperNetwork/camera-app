@@ -4,7 +4,6 @@ import React, { useRef, useEffect, useState, useCallback } from "react";
 import { CameraConfig, ConnectionStatus } from "@/lib/types";
 import {
   Wifi,
-  WifiOff,
   Maximize2,
   Volume2,
   VolumeX,
@@ -13,9 +12,9 @@ import {
   Check,
   AlertCircle,
   X,
-  Radio,
   Expand,
   Zap,
+  Gauge,
 } from "lucide-react";
 
 interface CameraPlayerProps {
@@ -37,10 +36,18 @@ export function CameraPlayer({
 
   const [status, setStatus] = useState<ConnectionStatus>("connecting");
   const [streamProtocol, setStreamProtocol] = useState<"webrtc" | "mp4">("webrtc");
+  // In grid view, default to fast substream for instant, smooth playback. In fullscreen, default to HD.
+  const [quality, setQuality] = useState<"fast" | "hd">(isFullscreen ? "hd" : "fast");
   const [isMuted, setIsMuted] = useState(true);
   const [errorMessage, setErrorMessage] = useState("");
   const [snapshotTaken, setSnapshotTaken] = useState(false);
   const [currentTime, setCurrentTime] = useState("");
+
+  // Determine active stream name based on quality setting
+  const activeStreamName =
+    quality === "fast" && camera.subStreamName
+      ? camera.subStreamName
+      : camera.streamName;
 
   // Clock
   useEffect(() => {
@@ -59,7 +66,7 @@ export function CameraPlayer({
     return () => clearInterval(interval);
   }, []);
 
-  // Cleanup WebRTC
+  // Cleanup WebRTC & Video
   const stopStream = useCallback(() => {
     if (fallbackTimerRef.current) {
       clearTimeout(fallbackTimerRef.current);
@@ -76,110 +83,130 @@ export function CameraPlayer({
     }
   }, []);
 
-  // Start Stream (WebRTC or MP4 HTTP stream)
-  const startStream = useCallback(async (forcedProtocol?: "webrtc" | "mp4") => {
-    stopStream();
-    setStatus("connecting");
-    setErrorMessage("");
-
-    const activeProtocol = forcedProtocol || streamProtocol;
-
-    // ── PROTOCOL: MP4 Progressive HTTP Stream (100% Cloudflare Tunnel Compatible) ──
-    if (activeProtocol === "mp4") {
-      setStreamProtocol("mp4");
-      if (videoRef.current) {
-        const streamUrl = `/api/stream/stream.mp4?src=${encodeURIComponent(
-          camera.streamName
-        )}`;
-        videoRef.current.src = streamUrl;
-        videoRef.current.onloadedmetadata = () => {
-          setStatus("connected");
-          videoRef.current?.play().catch(() => {});
-        };
-        videoRef.current.onerror = () => {
-          setStatus("error");
-          setErrorMessage("Feed stream error");
-        };
-      }
-      return;
-    }
-
-    // ── PROTOCOL: WebRTC WHEP ──
-    setStreamProtocol("webrtc");
+  // Buffer sync: Keep video pinned to real-time live edge (prevents lag accumulation)
+  const handleTimeUpdate = useCallback(() => {
+    const v = videoRef.current;
+    if (!v || v.buffered.length === 0) return;
     try {
-      const pc = new RTCPeerConnection({
-        iceServers: [
-          { urls: "stun:stun.l.google.com:19302" },
-          { urls: "stun:stun1.l.google.com:19302" },
-        ],
-      });
-      pcRef.current = pc;
+      const liveEdge = v.buffered.end(v.buffered.length - 1);
+      const lag = liveEdge - v.currentTime;
+      if (lag > 2.0) {
+        // Jump directly to live edge
+        v.currentTime = liveEdge - 0.15;
+      } else if (lag > 0.6) {
+        // Slight lag: speed up temporarily
+        v.playbackRate = 1.15;
+      } else {
+        v.playbackRate = 1.0;
+      }
+    } catch {}
+  }, []);
 
-      pc.addTransceiver("video", { direction: "recvonly" });
-      pc.addTransceiver("audio", { direction: "recvonly" });
+  // Start Stream (WebRTC with instant MP4 HTTP fallback)
+  const startStream = useCallback(
+    async (forcedProtocol?: "webrtc" | "mp4") => {
+      stopStream();
+      setStatus("connecting");
+      setErrorMessage("");
 
-      pc.ontrack = (event) => {
-        if (videoRef.current && event.streams[0]) {
-          videoRef.current.srcObject = event.streams[0];
-          videoRef.current.play().catch(() => {});
-          setStatus("connected");
+      const activeProtocol = forcedProtocol || streamProtocol;
+
+      // ── PROTOCOL: MP4 Progressive HTTP Stream (100% Cloudflare Tunnel Compatible) ──
+      if (activeProtocol === "mp4") {
+        setStreamProtocol("mp4");
+        if (videoRef.current) {
+          const streamUrl = `/api/stream/stream.mp4?src=${encodeURIComponent(
+            activeStreamName
+          )}`;
+          videoRef.current.src = streamUrl;
+          videoRef.current.onloadedmetadata = () => {
+            setStatus("connected");
+            videoRef.current?.play().catch(() => {});
+          };
+          videoRef.current.onerror = () => {
+            setStatus("error");
+            setErrorMessage("Feed stream error");
+          };
         }
-      };
-
-      pc.oniceconnectionstatechange = () => {
-        if (
-          pc.iceConnectionState === "failed" ||
-          pc.iceConnectionState === "disconnected"
-        ) {
-          // If WebRTC fails (e.g. UDP blocked by tunnel), switch to MP4
-          console.warn("WebRTC UDP failed, switching to MP4 stream");
-          startStream("mp4");
-        }
-      };
-
-      // Watchdog: If WebRTC says connected but videoWidth stays 0 after 4 seconds (UDP blocked), auto-fallback to MP4
-      fallbackTimerRef.current = setTimeout(() => {
-        if (videoRef.current && videoRef.current.videoWidth === 0) {
-          console.warn("WebRTC has no video frames (UDP blocked), falling back to MP4 stream");
-          startStream("mp4");
-        }
-      }, 4000);
-
-      const offer = await pc.createOffer();
-      await pc.setLocalDescription(offer);
-
-      const endpoint = `/api/stream/webrtc?src=${encodeURIComponent(
-        camera.streamName
-      )}`;
-
-      const response = await fetch(endpoint, {
-        method: "POST",
-        headers: { "Content-Type": "application/sdp" },
-        body: offer.sdp,
-      });
-
-      if (!response.ok) {
-        throw new Error(`HTTP ${response.status}`);
+        return;
       }
 
-      const answerSdp = await response.text();
-      await pc.setRemoteDescription({
-        type: "answer",
-        sdp: answerSdp,
-      });
-    } catch (err: unknown) {
-      console.warn("WebRTC handshake failed, falling back to MP4 stream:", err);
-      // Immediately fallback to MP4 stream
-      startStream("mp4");
-    }
-  }, [camera.streamName, stopStream, streamProtocol]);
+      // ── PROTOCOL: WebRTC WHEP ──
+      setStreamProtocol("webrtc");
+      try {
+        const pc = new RTCPeerConnection({
+          iceServers: [
+            { urls: "stun:stun.l.google.com:19302" },
+            { urls: "stun:stun1.l.google.com:19302" },
+          ],
+        });
+        pcRef.current = pc;
+
+        pc.addTransceiver("video", { direction: "recvonly" });
+        pc.addTransceiver("audio", { direction: "recvonly" });
+
+        pc.ontrack = (event) => {
+          if (videoRef.current && event.streams[0]) {
+            videoRef.current.srcObject = event.streams[0];
+            videoRef.current.play().catch(() => {});
+            setStatus("connected");
+          }
+        };
+
+        pc.oniceconnectionstatechange = () => {
+          if (
+            pc.iceConnectionState === "failed" ||
+            pc.iceConnectionState === "disconnected"
+          ) {
+            console.warn("WebRTC UDP failed, switching to fast MP4 stream");
+            startStream("mp4");
+          }
+        };
+
+        // Watchdog: If WebRTC has no video frames after 3s (UDP blocked), auto-fallback to MP4
+        fallbackTimerRef.current = setTimeout(() => {
+          if (videoRef.current && videoRef.current.videoWidth === 0) {
+            console.warn("WebRTC has no video frames, falling back to MP4 stream");
+            startStream("mp4");
+          }
+        }, 3000);
+
+        const offer = await pc.createOffer();
+        await pc.setLocalDescription(offer);
+
+        const endpoint = `/api/stream/webrtc?src=${encodeURIComponent(
+          activeStreamName
+        )}`;
+
+        const response = await fetch(endpoint, {
+          method: "POST",
+          headers: { "Content-Type": "application/sdp" },
+          body: offer.sdp,
+        });
+
+        if (!response.ok) {
+          throw new Error(`HTTP ${response.status}`);
+        }
+
+        const answerSdp = await response.text();
+        await pc.setRemoteDescription({
+          type: "answer",
+          sdp: answerSdp,
+        });
+      } catch (err: unknown) {
+        console.warn("WebRTC handshake failed, falling back to MP4 stream:", err);
+        startStream("mp4");
+      }
+    },
+    [activeStreamName, stopStream, streamProtocol]
+  );
 
   useEffect(() => {
     startStream();
     return () => {
       stopStream();
     };
-  }, [camera.streamName, refreshTrigger, startStream, stopStream]);
+  }, [activeStreamName, refreshTrigger, startStream, stopStream]);
 
   // Snapshot capture
   const handleSnapshot = (e?: React.MouseEvent) => {
@@ -228,6 +255,12 @@ export function CameraPlayer({
     startStream(next);
   };
 
+  // Toggle quality explicitly (Fast Substream vs HD Mainstream)
+  const toggleQuality = (e?: React.MouseEvent) => {
+    if (e) e.stopPropagation();
+    setQuality((prev) => (prev === "fast" ? "hd" : "fast"));
+  };
+
   const channelNum = camera.streamName.slice(-1) || "1";
 
   return (
@@ -258,6 +291,20 @@ export function CameraPlayer({
           </div>
 
           <div className="flex items-center gap-1.5 shrink-0">
+            {/* Quality pill: Fast vs HD */}
+            <button
+              onClick={toggleQuality}
+              className={`flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] font-bold border transition-colors ${
+                quality === "fast"
+                  ? "bg-emerald-50 text-emerald-700 border-emerald-200"
+                  : "bg-blue-50 text-blue-700 border-blue-200"
+              }`}
+              title="Click to toggle Fast (Smooth) vs HD (1080p)"
+            >
+              <Gauge className="h-2.5 w-2.5" />
+              <span>{quality === "fast" ? "FAST" : "HD"}</span>
+            </button>
+
             {status === "connected" && (
               <span className="flex items-center gap-1 rounded-md bg-emerald-50 px-2 py-0.5 text-[10px] font-bold text-emerald-700 border border-emerald-200">
                 LIVE
@@ -284,6 +331,7 @@ export function CameraPlayer({
           autoPlay
           playsInline
           muted={isMuted}
+          onTimeUpdate={handleTimeUpdate}
           className="h-full w-full object-contain pointer-events-none"
         />
 
@@ -343,9 +391,18 @@ export function CameraPlayer({
                 <span className="text-sm font-bold text-white">
                   {camera.name}
                 </span>
-                <span className="text-xs text-slate-400 hidden sm:inline">
-                  [{camera.location || "Live"}]
-                </span>
+                <button
+                  onClick={toggleQuality}
+                  className={`flex items-center gap-1 rounded px-2 py-0.5 text-xs font-bold border transition-colors ${
+                    quality === "fast"
+                      ? "bg-emerald-500/20 text-emerald-300 border-emerald-500/40"
+                      : "bg-blue-500/20 text-blue-300 border-blue-500/40"
+                  }`}
+                  title="Toggle Fast vs HD Quality"
+                >
+                  <Gauge className="h-3 w-3" />
+                  <span>{quality === "fast" ? "FAST (Smooth)" : "HD (1080p)"}</span>
+                </button>
               </div>
 
               <div className="flex items-center gap-2">

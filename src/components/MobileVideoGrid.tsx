@@ -2,7 +2,7 @@
 
 import React, { useRef, useEffect, useState, useCallback } from "react";
 import { CameraConfig } from "@/lib/types";
-import { Wifi, Radio, AlertCircle } from "lucide-react";
+import { Radio, AlertCircle } from "lucide-react";
 
 interface MobileVideoGridProps {
   cameras: CameraConfig[];
@@ -82,6 +82,9 @@ function SingleCameraCell({
   const [isError, setIsError] = useState(false);
   const lastTapRef = useRef<number>(0);
 
+  // Use fast substream on mobile grid for instant connection and smooth FPS
+  const streamSrc = camera.subStreamName || camera.streamName;
+
   const stop = useCallback(() => {
     if (fallbackTimerRef.current) {
       clearTimeout(fallbackTimerRef.current);
@@ -98,6 +101,23 @@ function SingleCameraCell({
     }
   }, []);
 
+  // Latency sync: Keep playback locked to real-time live edge
+  const handleTimeUpdate = useCallback(() => {
+    const v = videoRef.current;
+    if (!v || v.buffered.length === 0) return;
+    try {
+      const liveEdge = v.buffered.end(v.buffered.length - 1);
+      const lag = liveEdge - v.currentTime;
+      if (lag > 2.0) {
+        v.currentTime = liveEdge - 0.15;
+      } else if (lag > 0.5) {
+        v.playbackRate = 1.15;
+      } else {
+        v.playbackRate = 1.0;
+      }
+    } catch {}
+  }, []);
+
   // Start HTTP MP4 stream fallback
   const startMp4Stream = useCallback(() => {
     if (pcRef.current) {
@@ -106,7 +126,7 @@ function SingleCameraCell({
     }
     if (videoRef.current) {
       const streamUrl = `/api/stream/stream.mp4?src=${encodeURIComponent(
-        camera.streamName
+        streamSrc
       )}`;
       videoRef.current.src = streamUrl;
       videoRef.current.onloadedmetadata = () => {
@@ -121,7 +141,7 @@ function SingleCameraCell({
         setIsConnected(false);
       };
     }
-  }, [camera.streamName, isPaused]);
+  }, [streamSrc, isPaused]);
 
   const start = useCallback(async () => {
     stop();
@@ -155,24 +175,22 @@ function SingleCameraCell({
           pc.iceConnectionState === "failed" ||
           pc.iceConnectionState === "disconnected"
         ) {
-          console.warn(`[MobileGrid] WebRTC failed for ${camera.streamName}, switching to MP4 stream`);
           startMp4Stream();
         }
       };
 
-      // Watchdog: If WebRTC has no video frames after 3.5s (UDP blocked by Cloudflare Tunnel), auto-fallback to MP4
+      // Watchdog: If WebRTC has no video frames after 2.5s (UDP blocked), auto-fallback to MP4
       fallbackTimerRef.current = setTimeout(() => {
         if (videoRef.current && videoRef.current.videoWidth === 0) {
-          console.warn(`[MobileGrid] No WebRTC frames for ${camera.streamName}, falling back to MP4 stream`);
           startMp4Stream();
         }
-      }, 3500);
+      }, 2500);
 
       const offer = await pc.createOffer();
       await pc.setLocalDescription(offer);
 
       const endpoint = `/api/stream/webrtc?src=${encodeURIComponent(
-        camera.streamName
+        streamSrc
       )}`;
 
       const response = await fetch(endpoint, {
@@ -188,17 +206,16 @@ function SingleCameraCell({
       const answerSdp = await response.text();
       await pc.setRemoteDescription({ type: "answer", sdp: answerSdp });
     } catch {
-      // Fallback to MP4 immediately if WebRTC fails
       startMp4Stream();
     }
-  }, [camera.streamName, isPaused, startMp4Stream, stop]);
+  }, [streamSrc, isPaused, startMp4Stream, stop]);
 
   useEffect(() => {
     start();
     return () => {
       stop();
     };
-  }, [camera.streamName, refreshTrigger, start, stop]);
+  }, [streamSrc, refreshTrigger, start, stop]);
 
   useEffect(() => {
     if (videoRef.current) {
@@ -237,6 +254,7 @@ function SingleCameraCell({
         autoPlay
         playsInline
         muted={isMuted}
+        onTimeUpdate={handleTimeUpdate}
         className="h-full w-full object-cover pointer-events-none"
       />
 

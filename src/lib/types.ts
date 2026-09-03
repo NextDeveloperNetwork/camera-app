@@ -6,6 +6,7 @@ export interface CameraConfig {
   id: string;
   name: string;
   streamName: string;
+  subStreamName?: string;
   rtspUrl: string;
   location?: string;
   enabled: boolean;
@@ -26,7 +27,8 @@ export const DEFAULT_CAMERAS: CameraConfig[] = [
     id: "cam-1",
     name: "Camera 01 - Channel 1",
     streamName: "camera_channel_1",
-    rtspUrl: "rtsp://192.168.1.10:554/user=admin&password=&channel=1&stream=0.sdp",
+    subStreamName: "camera_channel_1_sub",
+    rtspUrl: "rtsp://192.168.1.10:554/user=admin&password=&channel=1&stream=0.sdp#transport=tcp",
     location: "Main Entrance",
     enabled: true,
   },
@@ -34,7 +36,8 @@ export const DEFAULT_CAMERAS: CameraConfig[] = [
     id: "cam-2",
     name: "Camera 02 - Channel 2",
     streamName: "camera_channel_2",
-    rtspUrl: "rtsp://192.168.1.10:554/user=admin&password=&channel=2&stream=0.sdp",
+    subStreamName: "camera_channel_2_sub",
+    rtspUrl: "rtsp://192.168.1.10:554/user=admin&password=&channel=2&stream=0.sdp#transport=tcp",
     location: "Parking Lot",
     enabled: true,
   },
@@ -42,7 +45,8 @@ export const DEFAULT_CAMERAS: CameraConfig[] = [
     id: "cam-3",
     name: "Camera 03 - Channel 3",
     streamName: "camera_channel_3",
-    rtspUrl: "rtsp://192.168.1.10:554/user=admin&password=&channel=3&stream=0.sdp",
+    subStreamName: "camera_channel_3_sub",
+    rtspUrl: "rtsp://192.168.1.10:554/user=admin&password=&channel=3&stream=0.sdp#transport=tcp",
     location: "Warehouse / Arch",
     enabled: true,
   },
@@ -50,7 +54,8 @@ export const DEFAULT_CAMERAS: CameraConfig[] = [
     id: "cam-4",
     name: "Camera 04 - Channel 4",
     streamName: "camera_channel_4",
-    rtspUrl: "rtsp://192.168.1.10:554/user=admin&password=&channel=4&stream=0.sdp",
+    subStreamName: "camera_channel_4_sub",
+    rtspUrl: "rtsp://192.168.1.10:554/user=admin&password=&channel=4&stream=0.sdp#transport=tcp",
     location: "Driveway",
     enabled: true,
   },

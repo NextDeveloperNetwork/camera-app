@@ -3,14 +3,25 @@ api:
   origin: "*"
 
 streams:
+  # Mainstreams (HD 1080p) - for single camera expanded view
   camera_channel_1:
-    - rtsp://192.168.1.10:554/user=admin&password=&channel=1&stream=0.sdp
+    - rtsp://192.168.1.10:554/user=admin&password=&channel=1&stream=0.sdp#transport=tcp
   camera_channel_2:
-    - rtsp://192.168.1.10:554/user=admin&password=&channel=2&stream=0.sdp
+    - rtsp://192.168.1.10:554/user=admin&password=&channel=2&stream=0.sdp#transport=tcp
   camera_channel_3:
-    - rtsp://192.168.1.10:554/user=admin&password=&channel=3&stream=0.sdp
+    - rtsp://192.168.1.10:554/user=admin&password=&channel=3&stream=0.sdp#transport=tcp
   camera_channel_4:
-    - rtsp://192.168.1.10:554/user=admin&password=&channel=4&stream=0.sdp
+    - rtsp://192.168.1.10:554/user=admin&password=&channel=4&stream=0.sdp#transport=tcp
+
+  # Substreams (Fast Fluency / Low Latency) - for 4-camera quad grid & mobile
+  camera_channel_1_sub:
+    - "rtsp://192.168.1.10:554/user=admin&password=&channel=1&stream=1.sdp#transport=tcp"
+  camera_channel_2_sub:
+    - "rtsp://192.168.1.10:554/user=admin&password=&channel=2&stream=1.sdp#transport=tcp"
+  camera_channel_3_sub:
+    - "rtsp://192.168.1.10:554/user=admin&password=&channel=3&stream=1.sdp#transport=tcp"
+  camera_channel_4_sub:
+    - "rtsp://192.168.1.10:554/user=admin&password=&channel=4&stream=1.sdp#transport=tcp"
 
 webrtc:
   listen: ":8555"
