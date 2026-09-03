@@ -49,8 +49,9 @@ export function CameraGrid({
     }
   }
 
-  // Determine grid classes based on layout mode
+  // Determine grid classes based on layout mode and camera count
   const getGridClasses = () => {
+    const count = activeCameras.length;
     switch (layout) {
       case "1x1":
         return "grid-cols-1 max-w-5xl mx-auto";
@@ -60,9 +61,9 @@ export function CameraGrid({
         return "grid-cols-1 md:grid-cols-2";
       case "auto":
       default:
-        if (activeCameras.length === 1) return "grid-cols-1 max-w-5xl mx-auto";
-        if (activeCameras.length === 2) return "grid-cols-1 md:grid-cols-2";
-        return "grid-cols-1 md:grid-cols-2 xl:grid-cols-3";
+        if (count === 1) return "grid-cols-1 max-w-5xl mx-auto";
+        if (count === 2) return "grid-cols-1 md:grid-cols-2";
+        return "grid-cols-1 md:grid-cols-2";
     }
   };
 

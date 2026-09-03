@@ -38,4 +38,20 @@ export const DEFAULT_CAMERAS: CameraConfig[] = [
     location: "Secondary Area",
     enabled: true,
   },
+  {
+    id: "cam-2",
+    name: "Camera 02 - Channel 2",
+    streamName: "camera_channel_2",
+    rtspUrl: "rtsp://192.168.1.10:554/user=admin&password=&channel=2&stream=0.sdp",
+    location: "Main Area",
+    enabled: true,
+  },
+  {
+    id: "cam-1",
+    name: "Camera 01 - Channel 1",
+    streamName: "camera_channel_1",
+    rtspUrl: "rtsp://192.168.1.10:554/user=admin&password=&channel=1&stream=0.sdp",
+    location: "Main Area",
+    enabled: true,
+  },
 ];

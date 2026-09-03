@@ -1,19 +1,22 @@
-# go2rtc configuration for RTSP camera streaming
-# Documentation: https://github.com/AlexxIT/go2rtc
-
 api:
   listen: ":1984"
   origin: "*"
 
-# Pre-configured RTSP cameras
 streams:
-  camera_channel_4:
-    - "rtsp://192.168.1.10:554/user=admin&password=&channel=4&stream=0.sdp"
+  camera_channel_1:
+    - "rtsp://192.168.1.10:554/user=admin&password=&channel=1&stream=0.sdp"
+    - "ffmpeg:camera_channel_1#video=h264#hardware"
+  camera_channel_2:
+    - "rtsp://192.168.1.10:554/user=admin&password=&channel=2&stream=0.sdp"
+    - "ffmpeg:camera_channel_2#video=h264#hardware"
   camera_channel_3:
     - "rtsp://192.168.1.10:554/user=admin&password=&channel=3&stream=0.sdp"
+    - "ffmpeg:camera_channel_3#video=h264#hardware"
+  camera_channel_4:
+    - "rtsp://192.168.1.10:554/user=admin&password=&channel=4&stream=0.sdp"
+    - "ffmpeg:camera_channel_4#video=h264#hardware"
 
 webrtc:
   listen: ":8555"
-  # WebRTC ICE servers for external Cloudflare/remote access
   candidates:
     - "stun:stun.l.google.com:19302"
