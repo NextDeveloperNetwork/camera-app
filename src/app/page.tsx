@@ -1,32 +1,48 @@
 "use client";
 
 import React, { useState, useEffect } from "react";
+import { CameraConfig, DEFAULT_CAMERAS, GridLayout, AppMode } from "@/lib/types";
+import { MobileTopBar } from "@/components/MobileTopBar";
+import { MobileVideoGrid } from "@/components/MobileVideoGrid";
+import { MobileQuickToolbar } from "@/components/MobileQuickToolbar";
+import { MobileCameraList } from "@/components/MobileCameraList";
+import { MobileBottomNav } from "@/components/MobileBottomNav";
+import { FullscreenCameraModal } from "@/components/FullscreenCameraModal";
+import { CameraSettingsModal } from "@/components/CameraSettingsModal";
+import { DesktopLayout } from "@/components/DesktopLayout";
+import { PlaybackTimeline } from "@/components/PlaybackTimeline";
 
 const STORAGE_KEY = "cameraview_configs";
-const STORAGE_VERSION = "v3"; // bump this when DEFAULT_CAMERAS changes
-import { Header } from "@/components/Header";
-import { CameraGrid } from "@/components/CameraGrid";
-import { CameraSettingsModal } from "@/components/CameraSettingsModal";
-import { CameraConfig, DEFAULT_CAMERAS, GridLayout } from "@/lib/types";
-import { Server, Globe, Cpu } from "lucide-react";
+const STORAGE_VERSION = "v6";
 
 export default function Home() {
   const [cameras, setCameras] = useState<CameraConfig[]>(DEFAULT_CAMERAS);
-  const [layout, setLayout] = useState<GridLayout>("auto");
+  const [selectedCameraId, setSelectedCameraId] = useState<string>(
+    DEFAULT_CAMERAS[0]?.id || "cam-1"
+  );
+  const [fullscreenCameraId, setFullscreenCameraId] = useState<string | null>(
+    null
+  );
+  const [layoutMode, setLayoutMode] = useState<"2x2" | "1x1">("2x2");
+  const [desktopLayout, setDesktopLayout] = useState<GridLayout>("2x2");
+  const [appMode, setAppMode] = useState<AppMode>("live");
+  const [isPaused, setIsPaused] = useState(false);
+  const [isMuted, setIsMuted] = useState(true);
   const [refreshTrigger, setRefreshTrigger] = useState(0);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [activeBottomTab, setActiveBottomTab] = useState("monitoring");
   const [isMounted, setIsMounted] = useState(false);
 
-  // Load user saved camera configurations from localStorage if any
   useEffect(() => {
     setIsMounted(true);
-    // If storage version doesn't match, clear stale data
     const storedVersion = localStorage.getItem(STORAGE_KEY + "_version");
     if (storedVersion !== STORAGE_VERSION) {
       localStorage.removeItem(STORAGE_KEY);
       localStorage.setItem(STORAGE_KEY + "_version", STORAGE_VERSION);
-      return; // use DEFAULT_CAMERAS
+      setCameras(DEFAULT_CAMERAS);
+      return;
     }
+
     const saved = localStorage.getItem(STORAGE_KEY);
     if (saved) {
       try {
@@ -51,61 +67,156 @@ export default function Home() {
     setRefreshTrigger((prev) => prev + 1);
   };
 
+  // Snapshot active camera
+  const handleSnapshotActive = () => {
+    const active =
+      cameras.find((c) => c.id === selectedCameraId) || cameras[0];
+    if (!active) return;
+
+    const link = document.createElement("a");
+    link.href = `/api/stream/frame.jpeg?src=${encodeURIComponent(
+      active.streamName
+    )}&download=1`;
+    link.download = `Snapshot_${active.name}_${Date.now()}.jpg`;
+    link.click();
+  };
+
+  // Handle dropdown selection from mobile top bar
+  const handleSelectView = (view: string) => {
+    if (view === "all") {
+      setLayoutMode("2x2");
+      setSelectedCameraId(cameras[0]?.id || "cam-1");
+    } else {
+      setLayoutMode("1x1");
+      setSelectedCameraId(view);
+    }
+  };
+
   if (!isMounted) {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-slate-950 text-cyan-400 font-mono text-sm">
-        INITIALIZING SURVEILLANCE HUD...
+      <div className="flex min-h-screen items-center justify-center bg-white text-slate-900 font-sans text-sm">
+        <div className="flex items-center gap-2">
+          <div className="h-4 w-4 animate-spin rounded-full border-2 border-slate-300 border-t-[#84cc16]" />
+          <span className="font-semibold text-slate-800">Loading Surveillance…</span>
+        </div>
       </div>
     );
   }
 
-  const activeCount = cameras.filter((c) => c.enabled).length;
+  const activeCam =
+    cameras.find((c) => c.id === (fullscreenCameraId || selectedCameraId)) ||
+    cameras[0];
 
   return (
-    <div className="flex min-h-screen flex-col bg-slate-950 text-slate-100 selection:bg-cyan-500/30 selection:text-cyan-200">
-      {/* HUD Header */}
-      <Header
-        layout={layout}
-        onLayoutChange={setLayout}
-        onRefreshAll={handleRefreshAll}
-        onOpenSettings={() => setIsSettingsOpen(true)}
-        cameraCount={activeCount}
-      />
-
-      {/* Main Grid Content */}
-      <main className="flex flex-1 flex-col">
-        <CameraGrid
+    <div className="min-h-screen bg-slate-100 flex flex-col text-slate-900">
+      {/* ────────────────────────────────────────────────────────────── */}
+      {/* 1. DESKTOP VIEW (Visible on screens >= 1024px)                  */}
+      {/* ────────────────────────────────────────────────────────────── */}
+      <div className="hidden lg:flex flex-1 h-screen w-full">
+        <DesktopLayout
           cameras={cameras}
-          layout={layout}
+          layout={desktopLayout}
+          onLayoutChange={setDesktopLayout}
+          refreshTrigger={refreshTrigger}
+          onRefreshAll={handleRefreshAll}
+          onOpenSettings={() => setIsSettingsOpen(true)}
+          appMode={appMode}
+          onSelectAppMode={setAppMode}
+          selectedCameraId={selectedCameraId}
+          onSelectCamera={setSelectedCameraId}
+        />
+      </div>
+
+      {/* ────────────────────────────────────────────────────────────── */}
+      {/* 2. MOBILE VIEW (Visible on screens < 1024px)                   */}
+      {/* ────────────────────────────────────────────────────────────── */}
+      <div className="flex lg:hidden flex-1 justify-center w-full">
+        <div className="w-full max-w-md bg-white min-h-screen flex flex-col shadow-xl relative border-x border-slate-200">
+          {/* Top Bar: Live ▾ and Fullscreen */}
+          <MobileTopBar
+            selectedView={
+              layoutMode === "2x2" ? "all" : selectedCameraId || "all"
+            }
+            onSelectView={handleSelectView}
+            onRefreshAll={handleRefreshAll}
+            onToggleFullscreen={() =>
+              setFullscreenCameraId(selectedCameraId || cameras[0]?.id)
+            }
+            isAllFullscreen={fullscreenCameraId !== null}
+          />
+
+          {/* Conditional: Live Grid OR History Playback on mobile */}
+          {activeBottomTab === "archive" || activeBottomTab === "search" ? (
+            <PlaybackTimeline
+              cameras={cameras}
+              selectedCameraId={selectedCameraId}
+              onSelectCamera={setSelectedCameraId}
+            />
+          ) : (
+            <>
+              {/* Compact 2x2 Video Grid */}
+              <MobileVideoGrid
+                cameras={cameras}
+                selectedCameraId={selectedCameraId}
+                onSelectCamera={(id) => setSelectedCameraId(id)}
+                onDoubleTapCamera={(id) => setFullscreenCameraId(id)}
+                refreshTrigger={refreshTrigger}
+                isPaused={isPaused}
+                isMuted={isMuted}
+                layoutMode={layoutMode}
+              />
+
+              {/* Quick Action Toolbar directly beneath video grid */}
+              <MobileQuickToolbar
+                isPaused={isPaused}
+                onTogglePause={() => setIsPaused(!isPaused)}
+                onSnapshot={handleSnapshotActive}
+                onExpand={() =>
+                  setFullscreenCameraId(selectedCameraId || cameras[0]?.id)
+                }
+                layoutMode={layoutMode}
+                onToggleLayout={() =>
+                  setLayoutMode((prev) => (prev === "2x2" ? "1x1" : "2x2"))
+                }
+                isMuted={isMuted}
+                onToggleMute={() => setIsMuted(!isMuted)}
+                activeCameraName={activeCam?.name || "Camera"}
+              />
+
+              {/* Middle Section: Sites / Displays Tabs + Camera Accordion List */}
+              <MobileCameraList
+                cameras={cameras}
+                selectedCameraId={selectedCameraId}
+                onSelectCamera={(id) => setSelectedCameraId(id)}
+                onDoubleTapCamera={(id) => setFullscreenCameraId(id)}
+              />
+            </>
+          )}
+
+          {/* Fixed Bottom Navigation Bar */}
+          <MobileBottomNav
+            activeTab={activeBottomTab}
+            onSelectTab={(tab) => {
+              setActiveBottomTab(tab);
+              if (tab === "settings") setIsSettingsOpen(true);
+            }}
+            onOpenSettings={() => setIsSettingsOpen(true)}
+          />
+        </div>
+      </div>
+
+      {/* Fullscreen Expanded Camera Modal */}
+      {fullscreenCameraId && (
+        <FullscreenCameraModal
+          camera={activeCam}
+          allCameras={cameras}
+          onClose={() => setFullscreenCameraId(null)}
+          onSelectCamera={(id) => setFullscreenCameraId(id)}
           refreshTrigger={refreshTrigger}
         />
-      </main>
+      )}
 
-      {/* Telemetry Footer Status Bar */}
-      <footer className="border-t border-slate-900 bg-slate-950/90 px-4 py-2 text-xs font-mono backdrop-blur-sm">
-        <div className="mx-auto flex flex-wrap items-center justify-between gap-3 text-slate-400">
-          <div className="flex items-center gap-4">
-            <span className="flex items-center gap-1.5 text-slate-300">
-              <Server className="h-3.5 w-3.5 text-cyan-400" />
-              <span>Proxmox Host &bull; 192.168.1.10:554</span>
-            </span>
-            <span className="hidden items-center gap-1.5 text-slate-300 sm:flex">
-              <Globe className="h-3.5 w-3.5 text-emerald-400" />
-              <span>Cloudflare Tunnel Compatible</span>
-            </span>
-          </div>
-
-          <div className="flex items-center gap-3">
-            <span className="flex items-center gap-1 text-[11px] text-slate-500">
-              <Cpu className="h-3 w-3 text-cyan-500" />
-              <span>Zero-Copy Passthrough (H.264)</span>
-            </span>
-            <span className="text-[10px] text-slate-600">v1.0.0</span>
-          </div>
-        </div>
-      </footer>
-
-      {/* Settings Modal */}
+      {/* Camera Settings Modal */}
       <CameraSettingsModal
         isOpen={isSettingsOpen}
         onClose={() => setIsSettingsOpen(false)}
