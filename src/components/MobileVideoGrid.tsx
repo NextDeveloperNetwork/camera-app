@@ -13,6 +13,7 @@ interface MobileVideoGridProps {
   isPaused: boolean;
   isMuted: boolean;
   layoutMode: "2x2" | "1x1";
+  streamProtocol?: "webrtc" | "mp4";
 }
 
 export function MobileVideoGrid({
@@ -24,8 +25,8 @@ export function MobileVideoGrid({
   isPaused,
   isMuted,
   layoutMode,
+  streamProtocol = "mp4",
 }: MobileVideoGridProps) {
-  // If in 1x1 mode or a single camera view is active, filter to only that camera
   const displayedCameras =
     layoutMode === "1x1" && selectedCameraId
       ? cameras.filter((c) => c.id === selectedCameraId)
@@ -49,6 +50,7 @@ export function MobileVideoGrid({
           refreshTrigger={refreshTrigger}
           isPaused={isPaused}
           isMuted={isMuted}
+          streamProtocol={streamProtocol}
         />
       ))}
     </div>
@@ -63,6 +65,7 @@ interface SingleCameraCellProps {
   refreshTrigger: number;
   isPaused: boolean;
   isMuted: boolean;
+  streamProtocol: "webrtc" | "mp4";
 }
 
 function SingleCameraCell({
@@ -73,6 +76,7 @@ function SingleCameraCell({
   refreshTrigger,
   isPaused,
   isMuted,
+  streamProtocol,
 }: SingleCameraCellProps) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const pcRef = useRef<RTCPeerConnection | null>(null);
@@ -118,7 +122,7 @@ function SingleCameraCell({
     } catch {}
   }, []);
 
-  // Start HTTP MP4 stream fallback
+  // Start HTTP MP4 stream (100% Cloudflare Tunnel compatible)
   const startMp4Stream = useCallback(() => {
     if (pcRef.current) {
       pcRef.current.close();
@@ -129,25 +133,33 @@ function SingleCameraCell({
         streamSrc
       )}`;
       videoRef.current.src = streamUrl;
-      videoRef.current.onloadedmetadata = () => {
+      videoRef.current.play().catch(() => {});
+      setIsConnected(true);
+      setIsError(false);
+
+      videoRef.current.onloadeddata = () => {
         setIsConnected(true);
         setIsError(false);
-        if (!isPaused) {
-          videoRef.current?.play().catch(() => {});
-        }
       };
       videoRef.current.onerror = () => {
         setIsError(true);
         setIsConnected(false);
       };
     }
-  }, [streamSrc, isPaused]);
+  }, [streamSrc]);
 
   const start = useCallback(async () => {
     stop();
     setIsConnected(false);
     setIsError(false);
 
+    // If MP4 protocol requested (default for mobile), connect immediately!
+    if (streamProtocol === "mp4") {
+      startMp4Stream();
+      return;
+    }
+
+    // WebRTC connection
     try {
       const pc = new RTCPeerConnection({
         iceServers: [
@@ -208,14 +220,14 @@ function SingleCameraCell({
     } catch {
       startMp4Stream();
     }
-  }, [streamSrc, isPaused, startMp4Stream, stop]);
+  }, [streamProtocol, streamSrc, isPaused, startMp4Stream, stop]);
 
   useEffect(() => {
     start();
     return () => {
       stop();
     };
-  }, [streamSrc, refreshTrigger, start, stop]);
+  }, [streamProtocol, streamSrc, refreshTrigger, start, stop]);
 
   useEffect(() => {
     if (videoRef.current) {
@@ -283,7 +295,7 @@ function SingleCameraCell({
 
       {/* Connection Loading State */}
       {!isConnected && !isError && (
-        <div className="absolute inset-0 flex flex-col items-center justify-center bg-black/60 backdrop-blur-xs">
+        <div className="absolute inset-0 flex flex-col items-center justify-center bg-black/60 backdrop-blur-xs pointer-events-none">
           <div className="h-5 w-5 animate-spin rounded-full border-2 border-slate-600 border-t-[#84cc16] mb-1.5" />
           <span className="text-[10px] font-medium text-white/80">
             Connecting…

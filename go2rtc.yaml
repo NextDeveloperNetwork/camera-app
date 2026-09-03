@@ -15,13 +15,13 @@ streams:
 
   # Substreams (Fast Fluency / Low Latency) - for 4-camera quad grid & mobile
   camera_channel_1_sub:
-    - "rtsp://192.168.1.10:554/user=admin&password=&channel=1&stream=1.sdp#transport=tcp"
+    - rtsp://192.168.1.10:554/user=admin&password=&channel=1&stream=1.sdp#transport=tcp
   camera_channel_2_sub:
-    - "rtsp://192.168.1.10:554/user=admin&password=&channel=2&stream=1.sdp#transport=tcp"
+    - rtsp://192.168.1.10:554/user=admin&password=&channel=2&stream=1.sdp#transport=tcp
   camera_channel_3_sub:
-    - "rtsp://192.168.1.10:554/user=admin&password=&channel=3&stream=1.sdp#transport=tcp"
+    - rtsp://192.168.1.10:554/user=admin&password=&channel=3&stream=1.sdp#transport=tcp
   camera_channel_4_sub:
-    - "rtsp://192.168.1.10:554/user=admin&password=&channel=4&stream=1.sdp#transport=tcp"
+    - rtsp://192.168.1.10:554/user=admin&password=&channel=4&stream=1.sdp#transport=tcp
 
 webrtc:
   listen: ":8555"

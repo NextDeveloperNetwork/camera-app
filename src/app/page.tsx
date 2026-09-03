@@ -35,6 +35,8 @@ export default function Home() {
   // Phone tilt / landscape orientation detection
   const [isDeviceLandscape, setIsDeviceLandscape] = useState(false);
   const [manualLandscape, setManualLandscape] = useState(false);
+  // Default mobile to MP4 for 100% instant Cloudflare Tunnel compatibility
+  const [mobileStreamProtocol, setMobileStreamProtocol] = useState<"webrtc" | "mp4">("mp4");
 
   useEffect(() => {
     setIsMounted(true);
@@ -187,6 +189,7 @@ export default function Home() {
             layoutMode={layoutMode}
             isPaused={isPaused}
             isMuted={isMuted}
+            streamProtocol={mobileStreamProtocol}
             onSelectCamera={(id) => {
               setSelectedCameraId(id);
             }}
@@ -202,6 +205,10 @@ export default function Home() {
             isPaused={isPaused}
             isMuted={isMuted}
             layoutMode={layoutMode}
+            streamProtocol={mobileStreamProtocol}
+            onToggleStreamProtocol={() =>
+              setMobileStreamProtocol((p) => (p === "mp4" ? "webrtc" : "mp4"))
+            }
             onTogglePause={() => setIsPaused((prev) => !prev)}
             onToggleMute={() => setIsMuted((prev) => !prev)}
             onToggleLayout={() =>
