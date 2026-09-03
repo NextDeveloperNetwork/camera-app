@@ -3,9 +3,8 @@
 import React from "react";
 import {
   Cctv,
+  LayoutGrid,
   Bell,
-  Search,
-  Archive,
   Settings,
 } from "lucide-react";
 
@@ -32,10 +31,23 @@ export function MobileBottomNav({
         }`}
       >
         <Cctv className="h-5 w-5" />
-        <span className="text-[10px] font-semibold">Monitoring</span>
+        <span className="text-[10px] font-semibold">Live</span>
       </button>
 
-      {/* 2. Alerts */}
+      {/* 2. Grid */}
+      <button
+        onClick={() => onSelectTab("grid")}
+        className={`flex flex-col items-center gap-0.5 py-1 px-3 transition-colors ${
+          activeTab === "grid"
+            ? "text-[#84cc16]"
+            : "text-slate-400 hover:text-slate-600"
+        }`}
+      >
+        <LayoutGrid className="h-5 w-5" />
+        <span className="text-[10px] font-semibold">Cameras</span>
+      </button>
+
+      {/* 3. Alerts */}
       <button
         onClick={() => onSelectTab("alerts")}
         className={`flex flex-col items-center gap-0.5 py-1 px-3 transition-colors ${
@@ -48,33 +60,7 @@ export function MobileBottomNav({
         <span className="text-[10px] font-semibold">Alerts</span>
       </button>
 
-      {/* 3. Search */}
-      <button
-        onClick={() => onSelectTab("search")}
-        className={`flex flex-col items-center gap-0.5 py-1 px-3 transition-colors ${
-          activeTab === "search"
-            ? "text-[#84cc16]"
-            : "text-slate-400 hover:text-slate-600"
-        }`}
-      >
-        <Search className="h-5 w-5" />
-        <span className="text-[10px] font-semibold">Search</span>
-      </button>
-
-      {/* 4. Archive */}
-      <button
-        onClick={() => onSelectTab("archive")}
-        className={`flex flex-col items-center gap-0.5 py-1 px-3 transition-colors ${
-          activeTab === "archive"
-            ? "text-[#84cc16]"
-            : "text-slate-400 hover:text-slate-600"
-        }`}
-      >
-        <Archive className="h-5 w-5" />
-        <span className="text-[10px] font-semibold">Archive</span>
-      </button>
-
-      {/* 5. Settings */}
+      {/* 4. Settings */}
       <button
         onClick={onOpenSettings}
         className="flex flex-col items-center gap-0.5 py-1 px-3 text-slate-400 hover:text-slate-600 transition-colors"

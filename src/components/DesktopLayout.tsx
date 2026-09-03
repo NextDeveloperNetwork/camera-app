@@ -1,24 +1,20 @@
 "use client";
 
 import React, { useState, useEffect } from "react";
-import { CameraConfig, GridLayout, AppMode } from "@/lib/types";
+import { CameraConfig, GridLayout } from "@/lib/types";
 import { CameraPlayer } from "./CameraPlayer";
-import { PlaybackTimeline } from "./PlaybackTimeline";
 import {
   Cctv,
-  LayoutGrid,
   Square,
   Columns2,
   Settings,
   RefreshCw,
   Radio,
   Clock,
-  Film,
   Maximize2,
   Server,
   ShieldCheck,
-  ChevronRight,
-  Eye,
+  LayoutGrid,
 } from "lucide-react";
 
 interface DesktopLayoutProps {
@@ -28,8 +24,6 @@ interface DesktopLayoutProps {
   refreshTrigger: number;
   onRefreshAll: () => void;
   onOpenSettings: () => void;
-  appMode: AppMode;
-  onSelectAppMode: (mode: AppMode) => void;
   selectedCameraId: string;
   onSelectCamera: (id: string) => void;
 }
@@ -41,8 +35,6 @@ export function DesktopLayout({
   refreshTrigger,
   onRefreshAll,
   onOpenSettings,
-  appMode,
-  onSelectAppMode,
   selectedCameraId,
   onSelectCamera,
 }: DesktopLayoutProps) {
@@ -104,7 +96,7 @@ export function DesktopLayout({
     <div className="flex flex-col h-screen w-full bg-slate-100 text-slate-900 overflow-hidden">
       {/* ── Top Navigation Bar (Desktop) ── */}
       <header className="flex items-center justify-between bg-white px-5 py-2.5 border-b border-slate-200 shadow-xs z-30">
-        {/* Brand & Mode Switcher (Live vs Playback) */}
+        {/* Brand & Live Indicator */}
         <div className="flex items-center gap-6">
           <div className="flex items-center gap-2.5">
             <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-slate-900 text-white shadow-xs">
@@ -120,37 +112,10 @@ export function DesktopLayout({
             </div>
           </div>
 
-          {/* Mode Tabs: Live Feeds | Playback / History */}
-          <div className="flex items-center rounded-xl border border-slate-200 bg-slate-100 p-1">
-            <button
-              onClick={() => onSelectAppMode("live")}
-              className={`flex items-center gap-2 px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all ${
-                appMode === "live"
-                  ? "bg-white text-slate-900 shadow-xs"
-                  : "text-slate-600 hover:text-slate-900"
-              }`}
-            >
-              <Radio
-                className={`h-3.5 w-3.5 ${
-                  appMode === "live"
-                    ? "text-emerald-500 animate-pulse"
-                    : "text-slate-400"
-                }`}
-              />
-              <span>Live Feeds</span>
-            </button>
-
-            <button
-              onClick={() => onSelectAppMode("playback")}
-              className={`flex items-center gap-2 px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all ${
-                appMode === "playback"
-                  ? "bg-white text-slate-900 shadow-xs"
-                  : "text-slate-600 hover:text-slate-900"
-              }`}
-            >
-              <Film className="h-3.5 w-3.5 text-amber-500" />
-              <span>History / Playback</span>
-            </button>
+          {/* Live Feeds Badge */}
+          <div className="flex items-center gap-2 rounded-xl border border-slate-200 bg-slate-100 px-3.5 py-1.5 text-xs font-bold text-slate-900">
+            <Radio className="h-3.5 w-3.5 text-emerald-500 animate-pulse" />
+            <span>Live Monitoring</span>
           </div>
         </div>
 
@@ -164,79 +129,73 @@ export function DesktopLayout({
 
         {/* Right Tools */}
         <div className="flex items-center gap-2">
-          {/* Grid Layout Toggles (only in Live mode) */}
-          {appMode === "live" && (
-            <div className="flex items-center rounded-xl border border-slate-200 bg-slate-100 p-0.5">
-              <button
-                onClick={() => onLayoutChange("1x1")}
-                title="Single Camera View"
-                className={`flex h-8 w-8 items-center justify-center rounded-lg transition-all ${
-                  layout === "1x1"
-                    ? "bg-white text-slate-900 shadow-xs font-bold"
-                    : "text-slate-500 hover:text-slate-800"
-                }`}
-              >
-                <Square className="h-4 w-4" />
-              </button>
-              <button
-                onClick={() => onLayoutChange("1x2")}
-                title="Two Camera View"
-                className={`flex h-8 w-8 items-center justify-center rounded-lg transition-all ${
-                  layout === "1x2"
-                    ? "bg-white text-slate-900 shadow-xs font-bold"
-                    : "text-slate-500 hover:text-slate-800"
-                }`}
-              >
-                <Columns2 className="h-4 w-4" />
-              </button>
-              <button
-                onClick={() => onLayoutChange("2x2")}
-                title="2x2 Quad Grid"
-                className={`flex h-8 w-8 items-center justify-center rounded-lg transition-all ${
-                  layout === "2x2" || layout === "auto"
-                    ? "bg-white text-slate-900 shadow-xs font-bold"
-                    : "text-slate-500 hover:text-slate-800"
-                }`}
-              >
-                <LayoutGrid className="h-4 w-4" />
-              </button>
-            </div>
-          )}
+          {/* Grid Layout Toggles */}
+          <div className="flex items-center rounded-xl border border-slate-200 bg-slate-100 p-0.5">
+            <button
+              onClick={() => onLayoutChange("1x1")}
+              title="Single Camera View"
+              className={`flex h-8 w-8 items-center justify-center rounded-lg transition-all ${
+                layout === "1x1"
+                  ? "bg-white text-slate-900 shadow-xs font-bold"
+                  : "text-slate-500 hover:text-slate-800"
+              }`}
+            >
+              <Square className="h-4 w-4" />
+            </button>
+            <button
+              onClick={() => onLayoutChange("1x2")}
+              title="1x2 Split View"
+              className={`flex h-8 w-8 items-center justify-center rounded-lg transition-all ${
+                layout === "1x2"
+                  ? "bg-white text-slate-900 shadow-xs font-bold"
+                  : "text-slate-500 hover:text-slate-800"
+              }`}
+            >
+              <Columns2 className="h-4 w-4" />
+            </button>
+            <button
+              onClick={() => onLayoutChange("2x2")}
+              title="2x2 Quad Grid"
+              className={`flex h-8 w-8 items-center justify-center rounded-lg transition-all ${
+                layout === "2x2" || layout === "auto"
+                  ? "bg-white text-slate-900 shadow-xs font-bold"
+                  : "text-slate-500 hover:text-slate-800"
+              }`}
+            >
+              <LayoutGrid className="h-4 w-4" />
+            </button>
+          </div>
 
-          {/* Refresh All */}
+          {/* Refresh All Streams */}
           <button
             onClick={onRefreshAll}
-            className="flex items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50 hover:text-slate-900 transition-colors shadow-xs"
-            title="Refresh All Streams"
+            title="Refresh All Camera Streams"
+            className="flex h-9 w-9 items-center justify-center rounded-xl border border-slate-200 bg-white text-slate-700 hover:bg-slate-50 transition-colors shadow-xs"
           >
-            <RefreshCw className="h-3.5 w-3.5" />
-            <span>Refresh</span>
+            <RefreshCw className="h-4 w-4" />
           </button>
 
           {/* Settings */}
           <button
             onClick={onOpenSettings}
-            className="flex items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50 hover:text-slate-900 transition-colors shadow-xs"
-            title="Settings"
+            title="System Settings"
+            className="flex h-9 w-9 items-center justify-center rounded-xl border border-slate-200 bg-white text-slate-700 hover:bg-slate-50 transition-colors shadow-xs"
           >
-            <Settings className="h-3.5 w-3.5" />
-            <span>Settings</span>
+            <Settings className="h-4 w-4" />
           </button>
         </div>
       </header>
 
-      {/* ── Main Desktop Body (Sidebar + Content Stage) ── */}
+      {/* ── Main Work Area (Sidebar + Grid) ── */}
       <div className="flex flex-1 overflow-hidden">
-        {/* Left Sidebar: Camera Tree & Device Health */}
-        <aside className="w-64 flex flex-col bg-white border-r border-slate-200 shadow-xs p-3 space-y-4 select-none">
-          {/* DVR Device Status */}
-          <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
+        {/* Left Sidebar: DVR / Camera Device Tree */}
+        <aside className="w-64 border-r border-slate-200 bg-white p-3.5 flex flex-col justify-between shrink-0 shadow-xs">
+          {/* DVR Node */}
+          <div className="mb-3 rounded-xl border border-slate-100 bg-slate-50/70 p-2.5">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <Server className="h-4 w-4 text-slate-700" />
-                <span className="text-xs font-bold text-slate-900">
-                  Local DVR
-                </span>
+                <span className="text-xs font-bold text-slate-900">H264 DVR</span>
               </div>
               <span className="flex items-center gap-1 rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-semibold text-emerald-700 border border-emerald-200">
                 Online
@@ -312,28 +271,20 @@ export function DesktopLayout({
           </div>
         </aside>
 
-        {/* Main Viewport: Live 2x2 Grid OR Playback Timeline */}
+        {/* Main Viewport: Live Grid */}
         <main className="flex-1 flex flex-col bg-slate-100 overflow-y-auto">
-          {appMode === "live" ? (
-            <div
-              className={`grid w-full flex-1 gap-3 p-4 transition-all ${getGridClasses()}`}
-            >
-              {activeCameras.map((camera) => (
-                <CameraPlayer
-                  key={camera.id}
-                  camera={camera}
-                  onToggleFullscreen={() => setFullscreenCameraId(camera.id)}
-                  refreshTrigger={refreshTrigger}
-                />
-              ))}
-            </div>
-          ) : (
-            <PlaybackTimeline
-              cameras={activeCameras}
-              selectedCameraId={selectedCameraId}
-              onSelectCamera={onSelectCamera}
-            />
-          )}
+          <div
+            className={`grid w-full flex-1 gap-3 p-4 transition-all ${getGridClasses()}`}
+          >
+            {activeCameras.map((camera) => (
+              <CameraPlayer
+                key={camera.id}
+                camera={camera}
+                onToggleFullscreen={() => setFullscreenCameraId(camera.id)}
+                refreshTrigger={refreshTrigger}
+              />
+            ))}
+          </div>
         </main>
       </div>
     </div>

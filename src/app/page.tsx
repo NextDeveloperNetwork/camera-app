@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState, useEffect } from "react";
-import { CameraConfig, DEFAULT_CAMERAS, GridLayout, AppMode } from "@/lib/types";
+import { CameraConfig, DEFAULT_CAMERAS, GridLayout } from "@/lib/types";
 import { MobileTopBar } from "@/components/MobileTopBar";
 import { MobileVideoGrid } from "@/components/MobileVideoGrid";
 import { MobileQuickToolbar } from "@/components/MobileQuickToolbar";
@@ -10,7 +10,6 @@ import { MobileBottomNav } from "@/components/MobileBottomNav";
 import { FullscreenCameraModal } from "@/components/FullscreenCameraModal";
 import { CameraSettingsModal } from "@/components/CameraSettingsModal";
 import { DesktopLayout } from "@/components/DesktopLayout";
-import { PlaybackTimeline } from "@/components/PlaybackTimeline";
 
 const STORAGE_KEY = "cameraview_configs";
 const STORAGE_VERSION = "v6";
@@ -25,7 +24,6 @@ export default function Home() {
   );
   const [layoutMode, setLayoutMode] = useState<"2x2" | "1x1">("2x2");
   const [desktopLayout, setDesktopLayout] = useState<GridLayout>("2x2");
-  const [appMode, setAppMode] = useState<AppMode>("live");
   const [isPaused, setIsPaused] = useState(false);
   const [isMuted, setIsMuted] = useState(true);
   const [refreshTrigger, setRefreshTrigger] = useState(0);
@@ -120,8 +118,6 @@ export default function Home() {
           refreshTrigger={refreshTrigger}
           onRefreshAll={handleRefreshAll}
           onOpenSettings={() => setIsSettingsOpen(true)}
-          appMode={appMode}
-          onSelectAppMode={setAppMode}
           selectedCameraId={selectedCameraId}
           onSelectCamera={setSelectedCameraId}
         />
@@ -145,78 +141,83 @@ export default function Home() {
             isAllFullscreen={fullscreenCameraId !== null}
           />
 
-          {/* Conditional: Live Grid OR History Playback on mobile */}
-          {activeBottomTab === "archive" || activeBottomTab === "search" ? (
-            <PlaybackTimeline
+          {/* Compact 2x2 Video Grid */}
+          <MobileVideoGrid
+            cameras={cameras}
+            selectedCameraId={selectedCameraId}
+            layoutMode={layoutMode}
+            isPaused={isPaused}
+            isMuted={isMuted}
+            onSelectCamera={(id) => {
+              setSelectedCameraId(id);
+            }}
+            onDoubleTapCamera={(id) => {
+              setSelectedCameraId(id);
+              setFullscreenCameraId(id);
+            }}
+            refreshTrigger={refreshTrigger}
+          />
+
+          {/* Quick Action Toolbar */}
+          <MobileQuickToolbar
+            isPaused={isPaused}
+            isMuted={isMuted}
+            layoutMode={layoutMode}
+            onTogglePause={() => setIsPaused((prev) => !prev)}
+            onToggleMute={() => setIsMuted((prev) => !prev)}
+            onToggleLayout={() =>
+              setLayoutMode((prev) => (prev === "2x2" ? "1x1" : "2x2"))
+            }
+            onExpand={() =>
+              setFullscreenCameraId(selectedCameraId || cameras[0]?.id)
+            }
+            onSnapshot={handleSnapshotActive}
+            activeCameraName={activeCam?.name || "Camera"}
+          />
+
+          {/* Collapsible Sites / DVR Camera Tree List */}
+          <div className="flex-1 overflow-y-auto pb-16">
+            <MobileCameraList
               cameras={cameras}
               selectedCameraId={selectedCameraId}
-              onSelectCamera={setSelectedCameraId}
+              onSelectCamera={(id) => {
+                setSelectedCameraId(id);
+              }}
+              onDoubleTapCamera={(id) => {
+                setSelectedCameraId(id);
+                setFullscreenCameraId(id);
+              }}
             />
-          ) : (
-            <>
-              {/* Compact 2x2 Video Grid */}
-              <MobileVideoGrid
-                cameras={cameras}
-                selectedCameraId={selectedCameraId}
-                onSelectCamera={(id) => setSelectedCameraId(id)}
-                onDoubleTapCamera={(id) => setFullscreenCameraId(id)}
-                refreshTrigger={refreshTrigger}
-                isPaused={isPaused}
-                isMuted={isMuted}
-                layoutMode={layoutMode}
-              />
+          </div>
 
-              {/* Quick Action Toolbar directly beneath video grid */}
-              <MobileQuickToolbar
-                isPaused={isPaused}
-                onTogglePause={() => setIsPaused(!isPaused)}
-                onSnapshot={handleSnapshotActive}
-                onExpand={() =>
-                  setFullscreenCameraId(selectedCameraId || cameras[0]?.id)
-                }
-                layoutMode={layoutMode}
-                onToggleLayout={() =>
-                  setLayoutMode((prev) => (prev === "2x2" ? "1x1" : "2x2"))
-                }
-                isMuted={isMuted}
-                onToggleMute={() => setIsMuted(!isMuted)}
-                activeCameraName={activeCam?.name || "Camera"}
-              />
-
-              {/* Middle Section: Sites / Displays Tabs + Camera Accordion List */}
-              <MobileCameraList
-                cameras={cameras}
-                selectedCameraId={selectedCameraId}
-                onSelectCamera={(id) => setSelectedCameraId(id)}
-                onDoubleTapCamera={(id) => setFullscreenCameraId(id)}
-              />
-            </>
-          )}
-
-          {/* Fixed Bottom Navigation Bar */}
+          {/* Fixed Bottom Navigation */}
           <MobileBottomNav
             activeTab={activeBottomTab}
-            onSelectTab={(tab) => {
-              setActiveBottomTab(tab);
-              if (tab === "settings") setIsSettingsOpen(true);
-            }}
+            onSelectTab={setActiveBottomTab}
             onOpenSettings={() => setIsSettingsOpen(true)}
           />
         </div>
       </div>
 
-      {/* Fullscreen Expanded Camera Modal */}
+      {/* ────────────────────────────────────────────────────────────── */}
+      {/* 3. FULLSCREEN EXPANDED CAMERA MODAL                            */}
+      {/* ────────────────────────────────────────────────────────────── */}
       {fullscreenCameraId && (
         <FullscreenCameraModal
           camera={activeCam}
           allCameras={cameras}
           onClose={() => setFullscreenCameraId(null)}
-          onSelectCamera={(id) => setFullscreenCameraId(id)}
+          onSelectCamera={(id) => {
+            setFullscreenCameraId(id);
+            setSelectedCameraId(id);
+          }}
           refreshTrigger={refreshTrigger}
         />
       )}
 
-      {/* Camera Settings Modal */}
+      {/* ────────────────────────────────────────────────────────────── */}
+      {/* 4. CAMERA SETTINGS MODAL                                       */}
+      {/* ────────────────────────────────────────────────────────────── */}
       <CameraSettingsModal
         isOpen={isSettingsOpen}
         onClose={() => setIsSettingsOpen(false)}
