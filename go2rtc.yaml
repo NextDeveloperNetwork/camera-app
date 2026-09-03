@@ -4,13 +4,13 @@ api:
 
 streams:
   camera_channel_1:
-    - "rtsp://192.168.1.10:554/user=admin&password=&channel=1&stream=0.sdp"
+    - rtsp://192.168.1.10:554/user=admin&password=&channel=1&stream=0.sdp
   camera_channel_2:
-    - "rtsp://192.168.1.10:554/user=admin&password=&channel=2&stream=0.sdp"
+    - rtsp://192.168.1.10:554/user=admin&password=&channel=2&stream=0.sdp
   camera_channel_3:
-    - "rtsp://192.168.1.10:554/user=admin&password=&channel=3&stream=0.sdp"
+    - rtsp://192.168.1.10:554/user=admin&password=&channel=3&stream=0.sdp
   camera_channel_4:
-    - "rtsp://192.168.1.10:554/user=admin&password=&channel=4&stream=0.sdp"
+    - rtsp://192.168.1.10:554/user=admin&password=&channel=4&stream=0.sdp
 
 webrtc:
   listen: ":8555"
