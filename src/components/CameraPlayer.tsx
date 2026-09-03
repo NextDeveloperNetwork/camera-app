@@ -184,16 +184,22 @@ export function CameraPlayer({
           body: offer.sdp,
         });
 
+        if (pcRef.current !== pc) return;
+
         if (!response.ok) {
           throw new Error(`HTTP ${response.status}`);
         }
 
         const answerSdp = await response.text();
+
+        if (pcRef.current !== pc) return;
+
         await pc.setRemoteDescription({
           type: "answer",
           sdp: answerSdp,
         });
       } catch (err: unknown) {
+        if (!pcRef.current) return;
         console.warn("WebRTC handshake failed, falling back to MP4 stream:", err);
         startStream("mp4");
       }
