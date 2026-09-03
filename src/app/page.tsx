@@ -10,6 +10,7 @@ import { MobileBottomNav } from "@/components/MobileBottomNav";
 import { FullscreenCameraModal } from "@/components/FullscreenCameraModal";
 import { CameraSettingsModal } from "@/components/CameraSettingsModal";
 import { DesktopLayout } from "@/components/DesktopLayout";
+import { MobileLandscapeView } from "@/components/MobileLandscapeView";
 
 const STORAGE_KEY = "cameraview_configs";
 const STORAGE_VERSION = "v6";
@@ -30,6 +31,10 @@ export default function Home() {
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [activeBottomTab, setActiveBottomTab] = useState("monitoring");
   const [isMounted, setIsMounted] = useState(false);
+
+  // Phone tilt / landscape orientation detection
+  const [isDeviceLandscape, setIsDeviceLandscape] = useState(false);
+  const [manualLandscape, setManualLandscape] = useState(false);
 
   useEffect(() => {
     setIsMounted(true);
@@ -52,6 +57,24 @@ export default function Home() {
         console.error("Failed to parse saved cameras:", err);
       }
     }
+  }, []);
+
+  // Listen for device rotation / tilt
+  useEffect(() => {
+    const handleOrientation = () => {
+      const isWide = window.innerWidth > window.innerHeight;
+      // Active on mobile / tablet screens when tilted sideways
+      const isMobileDevice = window.innerWidth < 1024 || window.innerHeight < 600;
+      setIsDeviceLandscape(isWide && isMobileDevice);
+    };
+
+    handleOrientation();
+    window.addEventListener("resize", handleOrientation);
+    window.addEventListener("orientationchange", handleOrientation);
+    return () => {
+      window.removeEventListener("resize", handleOrientation);
+      window.removeEventListener("orientationchange", handleOrientation);
+    };
   }, []);
 
   const handleSaveCameras = (updated: CameraConfig[]) => {
@@ -105,8 +128,23 @@ export default function Home() {
     cameras.find((c) => c.id === (fullscreenCameraId || selectedCameraId)) ||
     cameras[0];
 
+  const inLandscapeMode = isDeviceLandscape || manualLandscape;
+
   return (
     <div className="min-h-screen bg-slate-100 flex flex-col text-slate-900">
+      {/* ────────────────────────────────────────────────────────────── */}
+      {/* 0. IMMERSIVE TILT LANDSCAPE VIEW                               */}
+      {/* ────────────────────────────────────────────────────────────── */}
+      {inLandscapeMode && (
+        <MobileLandscapeView
+          cameras={cameras}
+          selectedCameraId={selectedCameraId}
+          onSelectCamera={setSelectedCameraId}
+          onClose={() => setManualLandscape(false)}
+          refreshTrigger={refreshTrigger}
+        />
+      )}
+
       {/* ────────────────────────────────────────────────────────────── */}
       {/* 1. DESKTOP VIEW (Visible on screens >= 1024px)                  */}
       {/* ────────────────────────────────────────────────────────────── */}
@@ -124,11 +162,11 @@ export default function Home() {
       </div>
 
       {/* ────────────────────────────────────────────────────────────── */}
-      {/* 2. MOBILE VIEW (Visible on screens < 1024px)                   */}
+      {/* 2. MOBILE PORTRAIT VIEW (Visible on screens < 1024px)          */}
       {/* ────────────────────────────────────────────────────────────── */}
       <div className="flex lg:hidden flex-1 justify-center w-full">
         <div className="w-full max-w-md bg-white min-h-screen flex flex-col shadow-xl relative border-x border-slate-200">
-          {/* Top Bar: Live ▾ and Fullscreen */}
+          {/* Top Bar: Live ▾ and Fullscreen & Landscape button */}
           <MobileTopBar
             selectedView={
               layoutMode === "2x2" ? "all" : selectedCameraId || "all"
@@ -138,6 +176,7 @@ export default function Home() {
             onToggleFullscreen={() =>
               setFullscreenCameraId(selectedCameraId || cameras[0]?.id)
             }
+            onEnterLandscape={() => setManualLandscape(true)}
             isAllFullscreen={fullscreenCameraId !== null}
           />
 
@@ -202,7 +241,7 @@ export default function Home() {
       {/* ────────────────────────────────────────────────────────────── */}
       {/* 3. FULLSCREEN EXPANDED CAMERA MODAL                            */}
       {/* ────────────────────────────────────────────────────────────── */}
-      {fullscreenCameraId && (
+      {fullscreenCameraId && !inLandscapeMode && (
         <FullscreenCameraModal
           camera={activeCam}
           allCameras={cameras}

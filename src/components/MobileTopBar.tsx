@@ -1,13 +1,14 @@
 "use client";
 
 import React, { useState } from "react";
-import { ChevronDown, Maximize2, RefreshCw, Radio, Check } from "lucide-react";
+import { ChevronDown, Maximize2, RefreshCw, Radio, Check, LayoutGrid } from "lucide-react";
 
 interface MobileTopBarProps {
   selectedView: string;
   onSelectView: (view: string) => void;
   onRefreshAll: () => void;
   onToggleFullscreen: () => void;
+  onEnterLandscape?: () => void;
   isAllFullscreen: boolean;
 }
 
@@ -16,6 +17,7 @@ export function MobileTopBar({
   onSelectView,
   onRefreshAll,
   onToggleFullscreen,
+  onEnterLandscape,
   isAllFullscreen,
 }: MobileTopBarProps) {
   const [dropdownOpen, setDropdownOpen] = useState(false);
@@ -77,8 +79,18 @@ export function MobileTopBar({
         )}
       </div>
 
-      {/* Right Icons: Refresh & Fullscreen */}
-      <div className="flex items-center gap-2">
+      {/* Right Icons: Landscape Quad, Refresh & Fullscreen */}
+      <div className="flex items-center gap-1.5">
+        {onEnterLandscape && (
+          <button
+            onClick={onEnterLandscape}
+            className="flex h-8 w-8 items-center justify-center rounded-lg text-slate-600 hover:bg-slate-100 active:scale-95 transition-all"
+            title="Landscape Quad View (or Tilt Phone)"
+          >
+            <LayoutGrid className="h-4 w-4" />
+          </button>
+        )}
+
         <button
           onClick={onRefreshAll}
           className="flex h-8 w-8 items-center justify-center rounded-lg text-slate-600 hover:bg-slate-100 active:scale-95 transition-all"
