@@ -20,6 +20,7 @@ services:
     restart: unless-stopped
     volumes:
       - ./go2rtc.yaml:/config/go2rtc.yaml:ro
+      - ./go2rtc.yaml:/go2rtc.yaml:ro
     ports:
       - "1984:1984"       # Web UI, API, MSE, WebRTC HTTP
       - "8555:8555/tcp"   # WebRTC signaling
