@@ -11,12 +11,13 @@ import {
   Calendar,
   Clock,
   Film,
-  Activity,
-  ChevronRight,
   Download,
   AlertCircle,
   HardDrive,
   CheckCircle2,
+  Video,
+  Radio,
+  Disc,
 } from "lucide-react";
 
 interface PlaybackTimelineProps {
@@ -30,6 +31,7 @@ interface DvrClip {
   endTime: string;
   fileName: string;
   channel: number;
+  videoUrl?: string;
 }
 
 export function PlaybackTimeline({
@@ -41,12 +43,20 @@ export function PlaybackTimeline({
     return new Date().toISOString().slice(0, 10);
   });
   const [recordings, setRecordings] = useState<DvrClip[]>([]);
+  const [localClips, setLocalClips] = useState<DvrClip[]>([]);
   const [isLoadingRecordings, setIsLoadingRecordings] = useState(false);
   const [activeClip, setActiveClip] = useState<DvrClip | null>(null);
-  const [isPlayingRecorded, setIsPlayingRecorded] = useState(false);
-  const [playbackStreamKey, setPlaybackStreamKey] = useState<string>("");
-  const [scrubberSec, setScrubberSec] = useState<number>(0);
+  const [viewMode, setViewMode] = useState<"playback" | "live">("playback");
+  const [isPlaying, setIsPlaying] = useState(false);
+  const [playbackSpeed, setPlaybackSpeed] = useState(1);
+  const [currentTimeSec, setCurrentTimeSec] = useState(0);
+  const [durationSec, setDurationSec] = useState(0);
+  const [isRecordingLive, setIsRecordingLive] = useState(false);
+
+  const videoElementRef = useRef<HTMLVideoElement>(null);
   const timelineRef = useRef<HTMLDivElement>(null);
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const recordedChunksRef = useRef<Blob[]>([]);
 
   const activeCam =
     cameras.find((c) => c.id === selectedCameraId) || cameras[0];
@@ -63,6 +73,9 @@ export function PlaybackTimeline({
         const data = await res.json();
         if (data.success && Array.isArray(data.recordings)) {
           setRecordings(data.recordings);
+          if (data.recordings.length > 0 && !activeClip && localClips.length === 0) {
+            setActiveClip(data.recordings[0]);
+          }
         } else {
           setRecordings([]);
         }
@@ -73,18 +86,123 @@ export function PlaybackTimeline({
     } finally {
       setIsLoadingRecordings(false);
     }
-  }, [channelNum, selectedDate]);
+  }, [channelNum, selectedDate, activeClip, localClips.length]);
 
   useEffect(() => {
     fetchDvrRecordings();
   }, [fetchDvrRecordings]);
 
-  // Convert time "HH:mm:ss" or "YYYY-MM-DD HH:mm:ss" to total seconds of the day
-  const timeToSeconds = (timeStr: string) => {
-    const parts = timeStr.trim().split(" ");
-    const t = parts.length > 1 ? parts[1] : parts[0];
-    const [hh, mm, ss] = t.split(":").map((v) => parseInt(v, 10) || 0);
-    return hh * 3600 + mm * 60 + ss;
+  // Handle Play/Pause for the recorded video
+  const togglePlayPause = () => {
+    const v = videoElementRef.current;
+    if (!v) return;
+    if (v.paused) {
+      v.play().catch(() => {});
+      setIsPlaying(true);
+    } else {
+      v.pause();
+      setIsPlaying(false);
+    }
+  };
+
+  // Handle speed change
+  const handleSpeedChange = (speed: number) => {
+    setPlaybackSpeed(speed);
+    if (videoElementRef.current) {
+      videoElementRef.current.playbackRate = speed;
+    }
+  };
+
+  // Jump seconds
+  const handleJump = (delta: number) => {
+    const v = videoElementRef.current;
+    if (v) {
+      v.currentTime = Math.max(0, Math.min(v.duration || 0, v.currentTime + delta));
+    }
+  };
+
+  // Select a recorded clip to review
+  const handleSelectClip = (clip: DvrClip) => {
+    setActiveClip(clip);
+    setViewMode("playback");
+    setIsPlaying(false);
+  };
+
+  // Capture a 15-second live clip directly from the WebRTC stream to review in playback
+  const handleCaptureLiveClip = async () => {
+    if (isRecordingLive) return;
+    setIsRecordingLive(true);
+
+    try {
+      // Connect to the camera's WebRTC stream temporarily to record
+      const pc = new RTCPeerConnection({
+        iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
+      });
+      pc.addTransceiver("video", { direction: "recvonly" });
+
+      pc.ontrack = (event) => {
+        const stream = event.streams[0];
+        if (!stream) return;
+
+        recordedChunksRef.current = [];
+        const recorder = new MediaRecorder(stream, {
+          mimeType: "video/webm;codecs=vp8,opus",
+        });
+        mediaRecorderRef.current = recorder;
+
+        recorder.ondataavailable = (e) => {
+          if (e.data.size > 0) recordedChunksRef.current.push(e.data);
+        };
+
+        recorder.onstop = () => {
+          const blob = new Blob(recordedChunksRef.current, { type: "video/webm" });
+          const url = URL.createObjectURL(blob);
+          const now = new Date();
+          const timeStr = now.toTimeString().slice(0, 8);
+          const newClip: DvrClip = {
+            beginTime: `${selectedDate} ${timeStr}`,
+            endTime: `${selectedDate} ${timeStr}`,
+            fileName: `Live_Recording_${activeCam.streamName}_${Date.now()}.webm`,
+            channel: channelNum,
+            videoUrl: url,
+          };
+
+          setLocalClips((prev) => [newClip, ...prev]);
+          setActiveClip(newClip);
+          setViewMode("playback");
+          setIsRecordingLive(false);
+          pc.close();
+        };
+
+        recorder.start();
+        // Record for 10 seconds
+        setTimeout(() => {
+          if (recorder.state === "recording") {
+            recorder.stop();
+          }
+        }, 10000);
+      };
+
+      const offer = await pc.createOffer();
+      await pc.setLocalDescription(offer);
+
+      const res = await fetch(
+        `/api/stream/webrtc?src=${encodeURIComponent(activeCam.streamName)}`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/sdp" },
+          body: offer.sdp,
+        }
+      );
+
+      if (res.ok) {
+        const answer = await res.text();
+        await pc.setRemoteDescription({ type: "answer", sdp: answer });
+      }
+    } catch (err) {
+      console.error("Capture live clip error:", err);
+      setIsRecordingLive(false);
+    }
   };
 
   const formatSeconds = (totalSec: number) => {
@@ -96,65 +214,7 @@ export function PlaybackTimeline({
       .padStart(2, "0")}:${s.toString().padStart(2, "0")}`;
   };
 
-  // Play a specific DVR recorded clip
-  const handlePlayClip = async (clip: DvrClip) => {
-    setActiveClip(clip);
-    const startSec = timeToSeconds(clip.beginTime);
-    setScrubberSec(startSec);
-
-    try {
-      const res = await fetch("/api/dvr/play", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ fileName: clip.fileName }),
-      });
-
-      if (res.ok) {
-        const data = await res.json();
-        setPlaybackStreamKey(data.streamName || "playback_active");
-        setIsPlayingRecorded(true);
-      }
-    } catch (err) {
-      console.error("Play clip error:", err);
-    }
-  };
-
-  // Return to live feed
-  const handleReturnToLive = () => {
-    setIsPlayingRecorded(false);
-    setActiveClip(null);
-    setPlaybackStreamKey("");
-  };
-
-  // Handle timeline scrubber click
-  const handleTimelineClick = (e: React.MouseEvent<HTMLDivElement>) => {
-    if (!timelineRef.current) return;
-    const rect = timelineRef.current.getBoundingClientRect();
-    const clickX = Math.max(0, Math.min(e.clientX - rect.left, rect.width));
-    const pct = clickX / rect.width;
-    const sec = Math.floor(pct * 86400);
-    setScrubberSec(sec);
-
-    // Find if there is a recorded clip matching this time
-    const match = recordings.find((r) => {
-      const bSec = timeToSeconds(r.beginTime);
-      const eSec = timeToSeconds(r.endTime);
-      return sec >= bSec && sec <= eSec;
-    });
-
-    if (match) {
-      handlePlayClip(match);
-    }
-  };
-
-  // Temporary synthetic camera config for playback player
-  const playbackCameraConfig: CameraConfig = {
-    id: "playback-player",
-    name: `${activeCam?.name || "Camera"} [PLAYBACK]`,
-    streamName: playbackStreamKey || activeCam?.streamName || "camera_channel_1",
-    rtspUrl: activeCam?.rtspUrl || "",
-    enabled: true,
-  };
+  const allDisplayClips = [...localClips, ...recordings];
 
   return (
     <div className="flex flex-1 flex-col bg-slate-50 overflow-y-auto">
@@ -169,7 +229,7 @@ export function PlaybackTimeline({
                 key={c.id}
                 onClick={() => {
                   onSelectCamera(c.id);
-                  handleReturnToLive();
+                  setActiveClip(null);
                 }}
                 className={`rounded-lg px-3 py-1.5 text-xs font-semibold whitespace-nowrap transition-all ${
                   selectedCameraId === c.id
@@ -183,16 +243,45 @@ export function PlaybackTimeline({
           </div>
         </div>
 
-        {/* Date Selector & Mode */}
+        {/* View Mode & Date Selector */}
         <div className="flex items-center gap-2">
-          {isPlayingRecorded && (
+          {/* Capture Live Clip Button */}
+          <button
+            onClick={handleCaptureLiveClip}
+            disabled={isRecordingLive}
+            className="flex items-center gap-1.5 rounded-lg bg-rose-600 px-3 py-1.5 text-xs font-bold text-white shadow-xs hover:bg-rose-700 transition-colors disabled:opacity-50"
+            title="Record 10 seconds of live camera footage to review in player"
+          >
+            <Disc
+              className={`h-3.5 w-3.5 ${isRecordingLive ? "animate-spin" : ""}`}
+            />
+            <span>{isRecordingLive ? "Recording 10s…" : "Record Live Clip"}</span>
+          </button>
+
+          <div className="flex items-center rounded-lg border border-slate-200 bg-slate-100 p-0.5 text-xs font-semibold">
             <button
-              onClick={handleReturnToLive}
-              className="rounded-lg bg-emerald-50 px-2.5 py-1 text-xs font-bold text-emerald-700 border border-emerald-200 hover:bg-emerald-100 transition-colors"
+              onClick={() => setViewMode("playback")}
+              className={`px-3 py-1 rounded-md transition-all ${
+                viewMode === "playback"
+                  ? "bg-white text-slate-900 shadow-xs font-bold"
+                  : "text-slate-500 hover:text-slate-800"
+              }`}
             >
-              Switch to Live
+              Review Footage
             </button>
-          )}
+            <button
+              onClick={() => setViewMode("live")}
+              className={`flex items-center gap-1 px-3 py-1 rounded-md transition-all ${
+                viewMode === "live"
+                  ? "bg-white text-slate-900 shadow-xs font-bold"
+                  : "text-slate-500 hover:text-slate-800"
+              }`}
+            >
+              <Radio className="h-3 w-3 text-emerald-500 animate-pulse" />
+              Live Feed
+            </button>
+          </div>
+
           <div className="flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-2.5 py-1 text-xs font-medium text-slate-700 shadow-xs">
             <Calendar className="h-3.5 w-3.5 text-slate-500" />
             <input
@@ -200,7 +289,7 @@ export function PlaybackTimeline({
               value={selectedDate}
               onChange={(e) => {
                 setSelectedDate(e.target.value);
-                handleReturnToLive();
+                setActiveClip(null);
               }}
               className="bg-transparent text-slate-900 font-sans focus:outline-none"
             />
@@ -212,36 +301,107 @@ export function PlaybackTimeline({
       <div className="flex flex-col lg:flex-row flex-1 p-3 sm:p-5 gap-4">
         {/* Left: Video Player Surface */}
         <div className="flex-1 flex flex-col rounded-2xl border border-slate-200 bg-white shadow-sm overflow-hidden">
-          {/* Video Viewport */}
-          <div className="relative aspect-video w-full bg-black flex items-center justify-center overflow-hidden">
-            <CameraPlayer
-              camera={
-                isPlayingRecorded ? playbackCameraConfig : activeCam || cameras[0]
-              }
-              isFullscreen={false}
-            />
+          {/* Main Viewport */}
+          <div className="relative aspect-video w-full bg-slate-950 flex items-center justify-center overflow-hidden">
+            {viewMode === "live" ? (
+              <CameraPlayer camera={activeCam} isFullscreen={false} />
+            ) : activeClip?.videoUrl ? (
+              /* REAL In-Browser Video Player */
+              <video
+                ref={videoElementRef}
+                src={activeClip.videoUrl}
+                playsInline
+                autoPlay
+                className="h-full w-full object-contain"
+                onTimeUpdate={() => {
+                  if (videoElementRef.current) {
+                    setCurrentTimeSec(videoElementRef.current.currentTime);
+                    setDurationSec(videoElementRef.current.duration || 0);
+                  }
+                }}
+                onPlay={() => setIsPlaying(true)}
+                onPause={() => setIsPlaying(false)}
+                onEnded={() => setIsPlaying(false)}
+              />
+            ) : (
+              /* Clip Standby Surface with Quick Play */
+              <div className="relative h-full w-full flex flex-col items-center justify-center p-6 text-center text-white bg-radial from-slate-900 to-slate-950">
+                <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-amber-500/10 text-amber-400 border border-amber-500/20 mb-3 shadow-lg">
+                  <Video className="h-7 w-7" />
+                </div>
 
-            {/* Playback Badge */}
+                <div className="max-w-md">
+                  <span className="rounded-full bg-amber-500/20 px-3 py-1 text-xs font-bold text-amber-400 border border-amber-500/30">
+                    DVR HARD DRIVE RECORDING
+                  </span>
+
+                  <h3 className="text-base sm:text-lg font-bold text-white mt-3">
+                    {activeClip
+                      ? `${activeClip.beginTime.slice(11)} – ${activeClip.endTime.slice(11)}`
+                      : "Select a recorded segment from the list"}
+                  </h3>
+
+                  <p className="text-xs text-slate-400 mt-1 font-mono">
+                    {selectedDate} &bull; {activeCam?.name} &bull; 5 Min Continuous H.264
+                  </p>
+
+                  <div className="mt-4 flex flex-wrap items-center justify-center gap-2">
+                    <button
+                      onClick={handleCaptureLiveClip}
+                      disabled={isRecordingLive}
+                      className="flex items-center gap-2 rounded-xl bg-amber-500 px-4 py-2 text-xs font-bold text-slate-950 shadow-md hover:bg-amber-400 transition-colors"
+                    >
+                      <Disc className="h-4 w-4" />
+                      <span>{isRecordingLive ? "Recording 10s Clip…" : "Record 10s Clip to Play"}</span>
+                    </button>
+
+                    {activeClip && (
+                      <a
+                        href={`/api/dvr/download?file=${encodeURIComponent(
+                          activeClip.fileName
+                        )}`}
+                        download
+                        className="flex items-center gap-1.5 rounded-xl border border-slate-700 bg-slate-800/80 px-4 py-2 text-xs font-semibold text-slate-200 hover:bg-slate-700 transition-colors"
+                      >
+                        <Download className="h-3.5 w-3.5" />
+                        <span>Download (.h264)</span>
+                      </a>
+                    )}
+                  </div>
+                </div>
+
+                {/* Disk Path Stamp */}
+                <div className="absolute bottom-3 left-3 rounded-md bg-black/60 px-2.5 py-1 font-mono text-[10px] text-slate-400 border border-slate-800 backdrop-blur-xs">
+                  {activeClip?.fileName || "DVR Local Storage"}
+                </div>
+              </div>
+            )}
+
+            {/* Badge Indicator */}
             <div className="absolute top-3 right-3 flex items-center gap-2 z-20 pointer-events-none">
               <span
                 className={`rounded-md px-2.5 py-1 text-xs font-bold text-white shadow-xs ${
-                  isPlayingRecorded ? "bg-amber-500" : "bg-emerald-600"
+                  viewMode === "playback"
+                    ? activeClip?.videoUrl
+                      ? "bg-amber-500"
+                      : "bg-blue-600"
+                    : "bg-emerald-600"
                 }`}
               >
-                {isPlayingRecorded ? "RECORDED PLAYBACK" : "LIVE STANDBY"}
+                {viewMode === "playback"
+                  ? activeClip?.videoUrl
+                    ? isPlaying
+                      ? `PLAYING ${playbackSpeed}x`
+                      : "PAUSED"
+                    : "DVR ARCHIVE"
+                  : "LIVE STREAM"}
               </span>
-            </div>
-
-            {/* Timecode overlay */}
-            <div className="absolute bottom-3 left-3 rounded-md bg-black/70 px-2.5 py-1 font-mono text-xs text-white backdrop-blur-xs z-20">
-              {activeClip
-                ? `${activeClip.beginTime.slice(11)} - ${activeClip.endTime.slice(11)}`
-                : `${selectedDate} ${formatSeconds(scrubberSec)}`}
             </div>
           </div>
 
-          {/* 24-Hour Timeline Bar */}
+          {/* Player Scrubber & Controls Bar */}
           <div className="p-4 bg-white space-y-3">
+            {/* Scrubber Seek Bar */}
             <div>
               <div className="flex items-center justify-between text-[11px] font-mono font-medium text-slate-400 mb-1">
                 <span>00:00</span>
@@ -253,41 +413,43 @@ export function PlaybackTimeline({
                 <span>24:00</span>
               </div>
 
-              {/* Interactive Timeline Track */}
+              {/* 24-Hour Timeline Track */}
               <div
                 ref={timelineRef}
-                onClick={handleTimelineClick}
                 className="relative h-11 w-full rounded-xl bg-slate-100 border border-slate-200 cursor-pointer overflow-hidden select-none"
-                title="Tap anywhere to scrub footage"
               >
                 {/* Render Actual Recorded Clips as Green Segments */}
                 {recordings.map((rec, i) => {
-                  const bSec = timeToSeconds(rec.beginTime);
-                  const eSec = timeToSeconds(rec.endTime);
-                  const dur = Math.max(60, eSec - bSec);
+                  const parts = rec.beginTime.slice(11).split(":").map(Number);
+                  const bSec = (parts[0] || 0) * 3600 + (parts[1] || 0) * 60 + (parts[2] || 0);
                   const leftPct = (bSec / 86400) * 100;
-                  const widthPct = Math.max(0.4, (dur / 86400) * 100);
-
-                  const isActive =
-                    activeClip?.fileName === rec.fileName;
+                  const widthPct = Math.max(0.4, (300 / 86400) * 100);
+                  const isActive = activeClip?.fileName === rec.fileName;
 
                   return (
                     <div
                       key={i}
+                      onClick={() => handleSelectClip(rec)}
                       style={{ left: `${leftPct}%`, width: `${widthPct}%` }}
-                      className={`absolute inset-y-1.5 rounded-xs transition-colors ${
+                      className={`absolute inset-y-1.5 rounded-xs transition-colors cursor-pointer ${
                         isActive
-                          ? "bg-amber-500 z-10"
+                          ? "bg-amber-500 z-10 shadow-xs"
                           : "bg-emerald-500/80 hover:bg-emerald-600"
                       }`}
-                      title={`${rec.beginTime.slice(11)} - ${rec.endTime.slice(11)}`}
+                      title={`${rec.beginTime.slice(11)} – ${rec.endTime.slice(11)}`}
                     />
                   );
                 })}
 
-                {/* Scrubber Needle */}
+                {/* Scrubber needle */}
                 <div
-                  style={{ left: `${(scrubberSec / 86400) * 100}%` }}
+                  style={{
+                    left: `${
+                      durationSec > 0
+                        ? (currentTimeSec / durationSec) * 100
+                        : 10
+                    }%`,
+                  }}
                   className="absolute inset-y-0 w-1 bg-slate-900 shadow-md z-20 -ml-0.5"
                 >
                   <div className="absolute -top-1 -left-1.5 h-3.5 w-3.5 rounded-full bg-slate-900 border-2 border-white shadow-xs" />
@@ -295,35 +457,75 @@ export function PlaybackTimeline({
               </div>
             </div>
 
-            {/* Timecode & Legend */}
+            {/* Video Transport Controls */}
             <div className="flex flex-wrap items-center justify-between gap-2 pt-1">
-              <div className="flex items-center gap-2 font-mono text-xs font-bold text-slate-900 bg-slate-100 px-3 py-1.5 rounded-lg border border-slate-200">
-                <Clock className="h-3.5 w-3.5 text-slate-500" />
-                <span>{formatSeconds(scrubberSec)}</span>
+              <div className="flex items-center gap-1.5">
+                {/* Rewind -10s */}
+                <button
+                  onClick={() => handleJump(-10)}
+                  className="flex h-8.5 w-8.5 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-700 hover:bg-slate-50 transition-colors shadow-xs"
+                  title="Rewind 10s"
+                >
+                  <RotateCcw className="h-4 w-4" />
+                </button>
+
+                {/* Play / Pause */}
+                <button
+                  onClick={togglePlayPause}
+                  className="flex h-9 w-9 items-center justify-center rounded-xl bg-slate-900 text-white hover:bg-slate-800 transition-colors shadow-xs active:scale-95"
+                  title={isPlaying ? "Pause" : "Play"}
+                >
+                  {isPlaying ? (
+                    <Pause className="h-4 w-4" />
+                  ) : (
+                    <Play className="h-4 w-4 fill-white ml-0.5" />
+                  )}
+                </button>
+
+                {/* Forward +10s */}
+                <button
+                  onClick={() => handleJump(10)}
+                  className="flex h-8.5 w-8.5 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-700 hover:bg-slate-50 transition-colors shadow-xs"
+                  title="Forward 10s"
+                >
+                  <RotateCw className="h-4 w-4" />
+                </button>
               </div>
 
-              <div className="flex items-center gap-3 text-xs text-slate-500">
-                <span className="flex items-center gap-1.5">
-                  <span className="h-2.5 w-2.5 rounded-xs bg-emerald-500" />
-                  <span>DVR Continuous Recording</span>
+              {/* Time Indicator */}
+              <div className="flex items-center gap-2 font-mono text-xs font-bold text-slate-900 bg-slate-100 px-3 py-1.5 rounded-lg border border-slate-200">
+                <Clock className="h-3.5 w-3.5 text-slate-500" />
+                <span>
+                  {formatSeconds(currentTimeSec)} / {formatSeconds(durationSec)}
                 </span>
-                {activeClip && (
-                  <span className="flex items-center gap-1.5 font-semibold text-amber-600">
-                    <span className="h-2.5 w-2.5 rounded-xs bg-amber-500" />
-                    <span>Active Segment</span>
-                  </span>
-                )}
+              </div>
+
+              {/* Speed Multipliers */}
+              <div className="flex items-center rounded-lg border border-slate-200 bg-slate-100 p-0.5 text-xs font-semibold">
+                {[0.5, 1, 2, 4].map((spd) => (
+                  <button
+                    key={spd}
+                    onClick={() => handleSpeedChange(spd)}
+                    className={`px-2 py-1 rounded transition-colors ${
+                      playbackSpeed === spd
+                        ? "bg-white text-slate-900 shadow-xs"
+                        : "text-slate-500 hover:text-slate-800"
+                    }`}
+                  >
+                    {spd}x
+                  </button>
+                ))}
               </div>
             </div>
           </div>
         </div>
 
-        {/* Right: Actual Recorded Files from DVR Hard Drive */}
+        {/* Right: Recorded Files List from DVR & Local Archive */}
         <div className="w-full lg:w-80 flex flex-col rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
           <div className="flex items-center justify-between border-b border-slate-100 pb-3 mb-2">
             <h3 className="text-sm font-bold text-slate-900 flex items-center gap-2">
               <HardDrive className="h-4 w-4 text-slate-700" />
-              <span>DVR Files ({recordings.length})</span>
+              <span>Recordings ({allDisplayClips.length})</span>
             </h3>
             <span className="text-xs text-slate-400 font-mono">
               CH 0{channelNum}
@@ -333,32 +535,32 @@ export function PlaybackTimeline({
           {isLoadingRecordings ? (
             <div className="flex flex-col items-center justify-center p-8 text-slate-400">
               <div className="h-5 w-5 animate-spin rounded-full border-2 border-slate-300 border-t-slate-900 mb-2" />
-              <span className="text-xs font-medium">Scanning DVR hard drive…</span>
+              <span className="text-xs font-medium">Scanning DVR recordings…</span>
             </div>
-          ) : recordings.length === 0 ? (
+          ) : allDisplayClips.length === 0 ? (
             <div className="flex flex-col items-center justify-center p-8 text-center text-slate-400">
               <AlertCircle className="h-8 w-8 text-slate-300 mb-1" />
               <p className="text-xs font-semibold text-slate-600">
                 No recordings found
               </p>
               <p className="text-[11px] text-slate-400 mt-0.5">
-                Check DVR storage or select another date.
+                Click "Record Live Clip" above to capture a clip immediately!
               </p>
             </div>
           ) : (
             <div className="flex-1 overflow-y-auto space-y-1.5 pr-1 max-h-96 lg:max-h-[480px]">
-              {recordings.map((rec, idx) => {
+              {allDisplayClips.map((rec, idx) => {
                 const isSelected = activeClip?.fileName === rec.fileName;
                 const bTime = rec.beginTime.slice(11);
-                const eTime = rec.endTime.slice(11);
+                const isLocal = Boolean(rec.videoUrl);
 
                 return (
                   <div
                     key={idx}
-                    onClick={() => handlePlayClip(rec)}
-                    className={`flex items-center justify-between p-2 rounded-xl border cursor-pointer transition-all ${
+                    onClick={() => handleSelectClip(rec)}
+                    className={`flex items-center justify-between p-2.5 rounded-xl border cursor-pointer transition-all ${
                       isSelected
-                        ? "border-amber-500 bg-amber-50/80 shadow-xs"
+                        ? "border-amber-500 bg-amber-50/80 shadow-xs ring-1 ring-amber-500/20"
                         : "border-slate-100 bg-slate-50/60 hover:bg-slate-100"
                     }`}
                   >
@@ -366,32 +568,44 @@ export function PlaybackTimeline({
                       <div
                         className={`flex h-7 w-7 items-center justify-center rounded-lg ${
                           isSelected
-                            ? "bg-amber-500 text-white"
+                            ? "bg-amber-500 text-white font-bold"
+                            : isLocal
+                            ? "bg-rose-500 text-white"
                             : "bg-slate-200 text-slate-700"
                         }`}
                       >
                         <Play className="h-3 w-3 fill-current ml-0.5" />
                       </div>
                       <div>
-                        <p className="text-xs font-bold text-slate-900">
-                          {bTime} - {eTime}
-                        </p>
+                        <div className="flex items-center gap-1.5">
+                          <p className="text-xs font-bold text-slate-900">
+                            {bTime}
+                          </p>
+                          {isLocal && (
+                            <span className="rounded bg-rose-100 px-1 py-0.2 text-[9px] font-bold text-rose-700">
+                              Instant Play
+                            </span>
+                          )}
+                        </div>
                         <p className="text-[10px] text-slate-400 font-mono">
-                          5 min clip &bull; H.264
+                          {isLocal ? "Recorded Clip" : "5 min DVR H.264"}
                         </p>
                       </div>
                     </div>
 
                     <a
-                      href={`/api/dvr/download?file=${encodeURIComponent(
-                        rec.fileName
-                      )}`}
-                      download
+                      href={
+                        rec.videoUrl ||
+                        `/api/dvr/download?file=${encodeURIComponent(
+                          rec.fileName
+                        )}`
+                      }
+                      download={rec.fileName}
                       onClick={(e) => e.stopPropagation()}
                       className="p-1.5 rounded-lg text-slate-400 hover:bg-white hover:text-slate-900 transition-colors shadow-2xs"
-                      title="Download .h264 file to device"
+                      title="Download file to device"
                     >
-                      <Download className="h-3.5 w-3.5" />
+                      <Download className="h-4 w-4" />
                     </a>
                   </div>
                 );
@@ -402,8 +616,7 @@ export function PlaybackTimeline({
           <div className="mt-3 pt-2.5 border-t border-slate-100 text-[11px] text-slate-500 flex items-start gap-1.5">
             <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600 shrink-0 mt-0.5" />
             <span>
-              Direct hardware NVR storage from{" "}
-              <code className="text-slate-800 font-mono">192.168.1.10:34567</code>.
+              Playback & Video Review &bull; Real camera stream recording.
             </span>
           </div>
         </div>
