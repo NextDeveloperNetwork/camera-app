@@ -1,0 +1,80 @@
+###############################################
+# MediaMTX — RTSP to HLS for camera monitoring
+###############################################
+
+logLevel: info
+logDestinations: [stdout]
+
+# HLS server — this is what Next.js proxies to the browser
+hlsAddress: :8888
+hlsAllowOrigins: ['*']
+# Use standard fMP4 HLS (universal Safari/iOS/Android/Desktop support without Apple LL-HLS HTTPS requirement)
+hlsVariant: fmp4
+hlsSegmentCount: 5
+hlsSegmentDuration: 2s
+
+# Disable unused listeners
+webrtcAddress: :8889
+srtAddress: :8890
+
+##################################################
+# Camera paths — MainStream (stream=0) + Sub (stream=1)
+# sourceOnDemand: connect RTSP only when a viewer opens the stream
+##################################################
+paths:
+
+  camera_channel_1:
+    source: rtsp://192.168.1.10:554/user=admin&password=&channel=1&stream=0.sdp
+    rtspTransport: tcp
+    sourceOnDemand: yes
+    sourceOnDemandStartTimeout: 15s
+    sourceOnDemandCloseAfter: 15s
+
+  camera_channel_2:
+    source: rtsp://192.168.1.10:554/user=admin&password=&channel=2&stream=0.sdp
+    rtspTransport: tcp
+    sourceOnDemand: yes
+    sourceOnDemandStartTimeout: 15s
+    sourceOnDemandCloseAfter: 15s
+
+  camera_channel_3:
+    source: rtsp://192.168.1.10:554/user=admin&password=&channel=3&stream=0.sdp
+    rtspTransport: tcp
+    sourceOnDemand: yes
+    sourceOnDemandStartTimeout: 15s
+    sourceOnDemandCloseAfter: 15s
+
+  camera_channel_4:
+    source: rtsp://192.168.1.10:554/user=admin&password=&channel=4&stream=0.sdp
+    rtspTransport: tcp
+    sourceOnDemand: yes
+    sourceOnDemandStartTimeout: 15s
+    sourceOnDemandCloseAfter: 15s
+
+  camera_channel_1_sub:
+    source: rtsp://192.168.1.10:554/user=admin&password=&channel=1&stream=1.sdp
+    rtspTransport: tcp
+    sourceOnDemand: yes
+    sourceOnDemandStartTimeout: 15s
+    sourceOnDemandCloseAfter: 15s
+
+  camera_channel_2_sub:
+    source: rtsp://192.168.1.10:554/user=admin&password=&channel=2&stream=1.sdp
+    rtspTransport: tcp
+    sourceOnDemand: yes
+    sourceOnDemandStartTimeout: 15s
+    sourceOnDemandCloseAfter: 15s
+
+  camera_channel_3_sub:
+    source: rtsp://192.168.1.10:554/user=admin&password=&channel=3&stream=1.sdp
+    rtspTransport: tcp
+    sourceOnDemand: yes
+    sourceOnDemandStartTimeout: 15s
+    sourceOnDemandCloseAfter: 15s
+
+  camera_channel_4_sub:
+    source: rtsp://192.168.1.10:554/user=admin&password=&channel=4&stream=1.sdp
+    rtspTransport: tcp
+    sourceOnDemand: yes
+    sourceOnDemandStartTimeout: 15s
+    sourceOnDemandCloseAfter: 15s

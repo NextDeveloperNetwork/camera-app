@@ -12,7 +12,6 @@ import { CameraSettingsModal } from "@/components/CameraSettingsModal";
 import { DesktopLayout } from "@/components/DesktopLayout";
 import { MobileLandscapeView } from "@/components/MobileLandscapeView";
 
-import { StreamProtocol } from "@/components/CameraPlayer";
 
 const STORAGE_KEY = "cameraview_configs";
 const STORAGE_VERSION = "v7";
@@ -34,11 +33,10 @@ export default function Home() {
   const [activeBottomTab, setActiveBottomTab] = useState("monitoring");
   const [isMounted, setIsMounted] = useState(false);
 
-  // Phone tilt / landscape orientation detection
+  // Responsive layout detection
+  const [isDesktop, setIsDesktop] = useState(false);
   const [isDeviceLandscape, setIsDeviceLandscape] = useState(false);
   const [manualLandscape, setManualLandscape] = useState(false);
-  // Default mobile to HLS for universal iOS Safari, Android & Cloudflare Tunnel compatibility
-  const [mobileStreamProtocol, setMobileStreamProtocol] = useState<StreamProtocol>("hls");
 
   useEffect(() => {
     setIsMounted(true);
@@ -63,21 +61,20 @@ export default function Home() {
     }
   }, []);
 
-  // Listen for device rotation / tilt
   useEffect(() => {
-    const handleOrientation = () => {
+    const handleLayout = () => {
       const isWide = window.innerWidth > window.innerHeight;
-      // Active on mobile / tablet screens when tilted sideways
-      const isMobileDevice = window.innerWidth < 1024 || window.innerHeight < 600;
-      setIsDeviceLandscape(isWide && isMobileDevice);
+      const isMobile = window.innerWidth < 1024 || window.innerHeight < 600;
+      setIsDeviceLandscape(isWide && isMobile);
+      setIsDesktop(window.innerWidth >= 1024);
     };
 
-    handleOrientation();
-    window.addEventListener("resize", handleOrientation);
-    window.addEventListener("orientationchange", handleOrientation);
+    handleLayout();
+    window.addEventListener("resize", handleLayout);
+    window.addEventListener("orientationchange", handleLayout);
     return () => {
-      window.removeEventListener("resize", handleOrientation);
-      window.removeEventListener("orientationchange", handleOrientation);
+      window.removeEventListener("resize", handleLayout);
+      window.removeEventListener("orientationchange", handleLayout);
     };
   }, []);
 
@@ -92,18 +89,33 @@ export default function Home() {
     setRefreshTrigger((prev) => prev + 1);
   };
 
-  // Snapshot active camera
+  // Snapshot active camera directly from video canvas
   const handleSnapshotActive = () => {
     const active =
       cameras.find((c) => c.id === selectedCameraId) || cameras[0];
     if (!active) return;
 
-    const link = document.createElement("a");
-    link.href = `/api/stream/frame.jpeg?src=${encodeURIComponent(
-      active.streamName
-    )}&download=1`;
-    link.download = `Snapshot_${active.name}_${Date.now()}.jpg`;
-    link.click();
+    const videos = Array.from(document.querySelectorAll("video"));
+    const targetVideo =
+      videos.find((v) => !v.paused && v.videoWidth > 0) || videos[0];
+
+    if (targetVideo && targetVideo.videoWidth > 0) {
+      try {
+        const canvas = document.createElement("canvas");
+        canvas.width = targetVideo.videoWidth;
+        canvas.height = targetVideo.videoHeight;
+        const ctx = canvas.getContext("2d");
+        if (ctx) {
+          ctx.drawImage(targetVideo, 0, 0);
+          const link = document.createElement("a");
+          link.download = `Snapshot_${active.name}_${Date.now()}.jpg`;
+          link.href = canvas.toDataURL("image/jpeg", 0.95);
+          link.click();
+        }
+      } catch (err) {
+        console.error("Snapshot error:", err);
+      }
+    }
   };
 
   // Handle dropdown selection from mobile top bar
@@ -150,26 +162,27 @@ export default function Home() {
       )}
 
       {/* ────────────────────────────────────────────────────────────── */}
-      {/* 1. DESKTOP VIEW (Visible on screens >= 1024px)                  */}
+      {/* 1. DESKTOP VIEW (Mounted only when screen >= 1024px)           */}
       {/* ────────────────────────────────────────────────────────────── */}
-      <div className="hidden lg:flex flex-1 h-screen w-full">
-        <DesktopLayout
-          cameras={cameras}
-          layout={desktopLayout}
-          onLayoutChange={setDesktopLayout}
-          refreshTrigger={refreshTrigger}
-          onRefreshAll={handleRefreshAll}
-          onOpenSettings={() => setIsSettingsOpen(true)}
-          selectedCameraId={selectedCameraId}
-          onSelectCamera={setSelectedCameraId}
-        />
-      </div>
-
-      {/* ────────────────────────────────────────────────────────────── */}
-      {/* 2. MOBILE PORTRAIT VIEW (Visible on screens < 1024px)          */}
-      {/* ────────────────────────────────────────────────────────────── */}
-      <div className="flex lg:hidden flex-1 justify-center w-full">
-        <div className="w-full max-w-md bg-white min-h-screen flex flex-col shadow-xl relative border-x border-slate-200">
+      {isDesktop ? (
+        <div className="flex flex-1 h-screen w-full">
+          <DesktopLayout
+            cameras={cameras}
+            layout={desktopLayout}
+            onLayoutChange={setDesktopLayout}
+            refreshTrigger={refreshTrigger}
+            onRefreshAll={handleRefreshAll}
+            onOpenSettings={() => setIsSettingsOpen(true)}
+            selectedCameraId={selectedCameraId}
+            onSelectCamera={setSelectedCameraId}
+          />
+        </div>
+      ) : (
+        /* ────────────────────────────────────────────────────────────── */
+        /* 2. MOBILE PORTRAIT VIEW (Mounted only on mobile / small screen) */
+        /* ────────────────────────────────────────────────────────────── */
+        <div className="flex flex-1 justify-center w-full">
+          <div className="w-full max-w-md bg-white min-h-screen flex flex-col shadow-xl relative border-x border-slate-200">
           {/* Top Bar: Live ▾ and Fullscreen & Landscape button */}
           <MobileTopBar
             selectedView={
@@ -191,7 +204,6 @@ export default function Home() {
             layoutMode={layoutMode}
             isPaused={isPaused}
             isMuted={isMuted}
-            streamProtocol={mobileStreamProtocol}
             onSelectCamera={(id) => {
               setSelectedCameraId(id);
             }}
@@ -207,14 +219,6 @@ export default function Home() {
             isPaused={isPaused}
             isMuted={isMuted}
             layoutMode={layoutMode}
-            streamProtocol={mobileStreamProtocol}
-            onToggleStreamProtocol={() =>
-              setMobileStreamProtocol((p) => {
-                if (p === "hls") return "mp4";
-                if (p === "mp4") return "webrtc";
-                return "hls";
-              })
-            }
             onTogglePause={() => setIsPaused((prev) => !prev)}
             onToggleMute={() => setIsMuted((prev) => !prev)}
             onToggleLayout={() =>
@@ -227,7 +231,7 @@ export default function Home() {
             activeCameraName={activeCam?.name || "Camera"}
           />
 
-          {/* Collapsible Sites / DVR Camera Tree List */}
+          {/* Channel Control Hub, Activity Log & System Diagnostics */}
           <div className="flex-1 overflow-y-auto pb-16">
             <MobileCameraList
               cameras={cameras}
@@ -239,6 +243,10 @@ export default function Home() {
                 setSelectedCameraId(id);
                 setFullscreenCameraId(id);
               }}
+              onRefreshAll={handleRefreshAll}
+              onSnapshot={handleSnapshotActive}
+              activeTab={activeBottomTab}
+              onTabChange={setActiveBottomTab}
             />
           </div>
 
@@ -250,6 +258,7 @@ export default function Home() {
           />
         </div>
       </div>
+      )}
 
       {/* ────────────────────────────────────────────────────────────── */}
       {/* 3. FULLSCREEN EXPANDED CAMERA MODAL                            */}

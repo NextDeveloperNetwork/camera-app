@@ -82,13 +82,13 @@ export function DesktopLayout({
   const getGridClasses = () => {
     switch (layout) {
       case "1x1":
-        return "grid-cols-1 max-w-5xl mx-auto";
+        return "grid-cols-1 grid-rows-1";
       case "1x2":
-        return "grid-cols-2";
+        return "grid-cols-2 grid-rows-1";
       case "2x2":
       case "auto":
       default:
-        return "grid-cols-2";
+        return "grid-cols-2 grid-rows-2";
     }
   };
 
@@ -265,25 +265,31 @@ export function DesktopLayout({
           <div className="pt-3 border-t border-slate-100 text-[11px] text-slate-500">
             <div className="flex items-center gap-1 text-slate-700 font-semibold mb-0.5">
               <ShieldCheck className="h-3.5 w-3.5 text-emerald-600" />
-              <span>WebRTC Direct</span>
+              <span>MediaMTX LL-HLS</span>
             </div>
             <p className="text-[10px]">Tap any camera to expand full-screen.</p>
           </div>
         </aside>
 
-        {/* Main Viewport: Live Grid */}
-        <main className="flex-1 flex flex-col bg-slate-100 overflow-y-auto">
+        {/* Main Viewport: Live Grid without margins, squared */}
+        <main className="flex-1 flex flex-col bg-black overflow-hidden">
           <div
-            className={`grid w-full flex-1 gap-3 p-4 transition-all ${getGridClasses()}`}
+            className={`grid w-full h-full flex-1 gap-[1px] p-0 m-0 bg-neutral-900 overflow-hidden ${getGridClasses()}`}
           >
-            {activeCameras.map((camera) => (
-              <CameraPlayer
-                key={camera.id}
-                camera={camera}
-                onToggleFullscreen={() => setFullscreenCameraId(camera.id)}
-                refreshTrigger={refreshTrigger}
-              />
-            ))}
+            {activeCameras
+              .slice(0, layout === "1x1" ? 1 : layout === "1x2" ? 2 : 4)
+              .map((camera) => (
+                <div
+                  key={camera.id}
+                  className="relative w-full h-full bg-black overflow-hidden rounded-none"
+                >
+                  <CameraPlayer
+                    camera={camera}
+                    onToggleFullscreen={() => setFullscreenCameraId(camera.id)}
+                    refreshTrigger={refreshTrigger}
+                  />
+                </div>
+              ))}
           </div>
         </main>
       </div>

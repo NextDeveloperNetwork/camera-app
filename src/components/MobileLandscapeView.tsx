@@ -107,27 +107,27 @@ export function MobileLandscapeView({
         <div className="flex items-center gap-2">
           <button
             onClick={handleBack}
-            className="flex h-9 w-9 items-center justify-center rounded-full bg-black/60 text-white border border-white/20 backdrop-blur-md hover:bg-white/20 active:scale-95 transition-all shadow-lg"
+            className="flex h-9 w-9 items-center justify-center rounded-none bg-black/60 text-white border border-white/20 backdrop-blur-md hover:bg-white/20 active:scale-95 transition-all shadow-lg"
             title={layout === "2x2" ? "Close Landscape" : "Back to 2x2 Grid"}
           >
             <ChevronLeft className="h-6 w-6 stroke-[2.5]" />
           </button>
 
           {layout === "1x1" && (
-            <span className="text-xs font-bold text-white tracking-wide bg-black/60 px-3 py-1 rounded-full border border-white/15 backdrop-blur-md">
+            <span className="text-xs font-bold text-white tracking-wide bg-black/60 px-3 py-1 rounded-none border border-white/15 backdrop-blur-md">
               {primaryCam.name.split(" - ")[0]}
             </span>
           )}
 
           {layout === "2x2" && (
-            <span className="text-xs font-bold text-emerald-400 bg-black/60 px-3 py-1 rounded-full border border-emerald-500/30 backdrop-blur-md flex items-center gap-1.5">
+            <span className="text-xs font-bold text-emerald-400 bg-black/60 px-3 py-1 rounded-none border border-emerald-500/30 backdrop-blur-md flex items-center gap-1.5">
               <Radio className="h-3 w-3 animate-pulse" />
               <span>Quad Live (4 Cameras)</span>
             </span>
           )}
 
           {layout === "1x2" && (
-            <span className="text-xs font-bold text-white bg-black/60 px-3 py-1 rounded-full border border-white/15 backdrop-blur-md">
+            <span className="text-xs font-bold text-white bg-black/60 px-3 py-1 rounded-none border border-white/15 backdrop-blur-md">
               Dual Split View
             </span>
           )}
@@ -135,11 +135,11 @@ export function MobileLandscapeView({
 
         {/* Center/Right: Layout Mode Toggles: [1x1] [1x2] [2x2] */}
         <div className="flex items-center gap-2">
-          <div className="flex items-center rounded-full bg-black/60 p-1 border border-white/20 backdrop-blur-md shadow-lg">
+          <div className="flex items-center rounded-none bg-black/60 p-0.5 border border-white/20 backdrop-blur-md shadow-lg">
             {/* 1x1 Single */}
             <button
               onClick={() => setLayout("1x1")}
-              className={`flex items-center gap-1 px-3 py-1 rounded-full text-xs font-bold transition-all ${
+              className={`flex items-center gap-1 px-3 py-1 rounded-none text-xs font-bold transition-all ${
                 layout === "1x1"
                   ? "bg-white text-black shadow-sm"
                   : "text-white/70 hover:text-white"
@@ -153,7 +153,7 @@ export function MobileLandscapeView({
             {/* 1x2 Dual ("select two to open") */}
             <button
               onClick={() => setLayout("1x2")}
-              className={`flex items-center gap-1 px-3 py-1 rounded-full text-xs font-bold transition-all ${
+              className={`flex items-center gap-1 px-3 py-1 rounded-none text-xs font-bold transition-all ${
                 layout === "1x2"
                   ? "bg-white text-black shadow-sm"
                   : "text-white/70 hover:text-white"
@@ -167,7 +167,7 @@ export function MobileLandscapeView({
             {/* 2x2 Quad (Default like in photo) */}
             <button
               onClick={() => setLayout("2x2")}
-              className={`flex items-center gap-1 px-3 py-1 rounded-full text-xs font-bold transition-all ${
+              className={`flex items-center gap-1 px-3 py-1 rounded-none text-xs font-bold transition-all ${
                 layout === "2x2"
                   ? "bg-white text-black shadow-sm"
                   : "text-white/70 hover:text-white"
@@ -182,7 +182,7 @@ export function MobileLandscapeView({
           {onClose && (
             <button
               onClick={onClose}
-              className="flex h-9 w-9 items-center justify-center rounded-full bg-black/60 text-white/80 border border-white/20 backdrop-blur-md hover:bg-white/20 transition-all shadow-lg"
+              className="flex h-9 w-9 items-center justify-center rounded-none bg-black/60 text-white/80 border border-white/20 backdrop-blur-md hover:bg-white/20 transition-all shadow-lg"
               title="Exit Landscape"
             >
               <X className="h-4 w-4" />
@@ -258,11 +258,6 @@ export function MobileLandscapeView({
 
               {/* Tap hint overlay on hover/touch */}
               <div className="absolute inset-0 bg-white/0 hover:bg-white/5 transition-colors pointer-events-none" />
-
-              {/* Camera title pill */}
-              <div className="absolute top-2 left-2 z-10 pointer-events-none rounded bg-black/70 px-2 py-0.5 text-[10px] font-bold text-white backdrop-blur-xs">
-                {camera.name.split(" - ")[0]}
-              </div>
             </div>
           ))}
         </div>
@@ -271,26 +266,20 @@ export function MobileLandscapeView({
       {/* 2. 1x2 DUAL SPLIT VIEW ("select two to open") */}
       {layout === "1x2" && (
         <div className="grid h-full w-full grid-cols-2 grid-rows-1 gap-[1px] bg-black">
-          <div className="relative h-full w-full bg-black overflow-hidden">
+          <div className="relative h-full w-full bg-black overflow-hidden rounded-none">
             <CameraPlayer
               camera={primaryCam}
               isFullscreen={false}
               refreshTrigger={refreshTrigger}
             />
-            <div className="absolute top-2 left-2 z-10 pointer-events-none rounded bg-black/70 px-2 py-0.5 text-[10px] font-bold text-white backdrop-blur-xs">
-              {primaryCam.name.split(" - ")[0]}
-            </div>
           </div>
 
-          <div className="relative h-full w-full bg-black overflow-hidden">
+          <div className="relative h-full w-full bg-black overflow-hidden rounded-none">
             <CameraPlayer
               camera={secondaryCam}
               isFullscreen={false}
               refreshTrigger={refreshTrigger}
             />
-            <div className="absolute top-2 left-2 z-10 pointer-events-none rounded bg-black/70 px-2 py-0.5 text-[10px] font-bold text-white backdrop-blur-xs">
-              {secondaryCam.name.split(" - ")[0]}
-            </div>
           </div>
         </div>
       )}

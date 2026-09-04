@@ -9,22 +9,19 @@ services:
       - "7070:3000"
     environment:
       - NODE_ENV=production
-      - GO2RTC_URL=http://stream-server:1984
+      - MEDIAMTX_URL=http://stream-server:8888
       - PORT=3000
     depends_on:
       - stream-server
 
   stream-server:
-    image: alexxit/go2rtc:latest
-    container_name: cameraview-go2rtc
+    image: bluenviron/mediamtx:latest
+    container_name: cameraview-mediamtx
     restart: unless-stopped
     volumes:
-      - ./go2rtc.yaml:/config/go2rtc.yaml:ro
-      - ./go2rtc.yaml:/go2rtc.yaml:ro
+      - ./mediamtx.yml:/mediamtx.yml:ro
     ports:
-      - "1984:1984"       # Web UI, API, MSE, WebRTC HTTP
-      - "8555:8555/tcp"   # WebRTC signaling
-      - "8555:8555/udp"   # WebRTC media
+      - "8888:8888"       # HLS stream server
 
   tunnel:
     image: cloudflare/cloudflared:latest

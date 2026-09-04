@@ -54,7 +54,7 @@ export function MobileTopBar({
               className="fixed inset-0 z-30"
               onClick={() => setDropdownOpen(false)}
             />
-            <div className="absolute left-0 top-full mt-1.5 z-40 w-56 rounded-xl border border-slate-200 bg-white p-1.5 shadow-xl animate-fadeIn">
+            <div className="absolute left-0 top-full mt-1.5 z-40 w-56 rounded-none border border-slate-200 bg-white p-1 shadow-xl animate-fadeIn">
               {views.map((v) => (
                 <button
                   key={v.id}
@@ -62,7 +62,7 @@ export function MobileTopBar({
                     onSelectView(v.id);
                     setDropdownOpen(false);
                   }}
-                  className={`flex w-full items-center justify-between rounded-lg px-3 py-2 text-xs font-medium text-left transition-colors ${
+                  className={`flex w-full items-center justify-between rounded-none px-3 py-2 text-xs font-medium text-left transition-colors ${
                     selectedView === v.id
                       ? "bg-lime-50 text-lime-700 font-semibold"
                       : "text-slate-700 hover:bg-slate-50"
@@ -80,11 +80,11 @@ export function MobileTopBar({
       </div>
 
       {/* Right Icons: Landscape Quad, Refresh & Fullscreen */}
-      <div className="flex items-center gap-1.5">
+      <div className="flex items-center gap-1">
         {onEnterLandscape && (
           <button
             onClick={onEnterLandscape}
-            className="flex h-8 w-8 items-center justify-center rounded-lg text-slate-600 hover:bg-slate-100 active:scale-95 transition-all"
+            className="flex h-8 w-8 items-center justify-center rounded-none text-slate-600 hover:bg-slate-100 active:scale-95 transition-all"
             title="Landscape Quad View (or Tilt Phone)"
           >
             <LayoutGrid className="h-4 w-4" />
@@ -93,7 +93,7 @@ export function MobileTopBar({
 
         <button
           onClick={onRefreshAll}
-          className="flex h-8 w-8 items-center justify-center rounded-lg text-slate-600 hover:bg-slate-100 active:scale-95 transition-all"
+          className="flex h-8 w-8 items-center justify-center rounded-none text-slate-600 hover:bg-slate-100 active:scale-95 transition-all"
           title="Refresh Feeds"
         >
           <RefreshCw className="h-4 w-4" />
@@ -101,7 +101,7 @@ export function MobileTopBar({
 
         <button
           onClick={onToggleFullscreen}
-          className="flex h-8 w-8 items-center justify-center rounded-lg text-slate-600 hover:bg-slate-100 active:scale-95 transition-all"
+          className="flex h-8 w-8 items-center justify-center rounded-none text-slate-600 hover:bg-slate-100 active:scale-95 transition-all"
           title="Fullscreen Mode"
         >
           <Maximize2 className="h-4 w-4" />

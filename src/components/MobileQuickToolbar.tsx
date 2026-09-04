@@ -77,30 +77,18 @@ export function MobileQuickToolbar({
         </button>
       </div>
 
-      {/* Center: Stream Protocol Toggle Badge (HLS / MP4 / WebRTC) */}
-      {onToggleStreamProtocol && (
-        <button
-          onClick={onToggleStreamProtocol}
-          className="flex items-center gap-1 text-[11px] font-bold px-2 py-1 rounded-full bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-200 transition-all active:scale-95"
-          title="Click to toggle stream protocol (HLS Live / MP4 / WebRTC)"
-        >
-          <Zap className="h-3 w-3 text-amber-500 fill-current" />
-          <span>
-            {streamProtocol === "hls"
-              ? "HLS Live"
-              : streamProtocol === "mp4"
-              ? "MP4 Stream"
-              : "WebRTC"}
-          </span>
-        </button>
-      )}
+      {/* Center: Live LL-HLS Stream Status Badge */}
+      <div className="flex items-center gap-1.5 text-[11px] font-semibold px-2.5 py-1 rounded-none bg-emerald-50 text-emerald-700 border border-emerald-200">
+        <span className="h-2 w-2 rounded-none bg-emerald-500 animate-pulse" />
+        <span>LL-HLS Fast</span>
+      </div>
 
       {/* Right controls */}
       <div className="flex items-center gap-3">
         {/* Layout: 2x2 vs 1x1 */}
         <button
           onClick={onToggleLayout}
-          className="flex h-8 w-8 items-center justify-center text-slate-700 hover:text-slate-900 active:scale-95 transition-all"
+          className="flex h-8 w-8 items-center justify-center text-slate-700 hover:text-slate-900 active:scale-95 transition-all rounded-none"
           title={layoutMode === "2x2" ? "Single View" : "Quad View"}
         >
           {layoutMode === "2x2" ? (
@@ -113,7 +101,7 @@ export function MobileQuickToolbar({
         {/* Speaker / Mute */}
         <button
           onClick={onToggleMute}
-          className="flex h-8 w-8 items-center justify-center text-slate-700 hover:text-slate-900 active:scale-95 transition-all"
+          className="flex h-8 w-8 items-center justify-center text-slate-700 hover:text-slate-900 active:scale-95 transition-all rounded-none"
           title={isMuted ? "Unmute Audio" : "Mute Audio"}
         >
           {isMuted ? (

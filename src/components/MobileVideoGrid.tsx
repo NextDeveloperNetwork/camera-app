@@ -2,7 +2,7 @@
 
 import React from "react";
 import { CameraConfig } from "@/lib/types";
-import { CameraPlayer, StreamProtocol } from "./CameraPlayer";
+import { CameraPlayer } from "./CameraPlayer";
 
 interface MobileVideoGridProps {
   cameras: CameraConfig[];
@@ -13,7 +13,6 @@ interface MobileVideoGridProps {
   isPaused?: boolean;
   isMuted?: boolean;
   layoutMode: "2x2" | "1x1";
-  streamProtocol?: StreamProtocol;
 }
 
 export function MobileVideoGrid({
@@ -23,7 +22,6 @@ export function MobileVideoGrid({
   onDoubleTapCamera,
   refreshTrigger,
   layoutMode,
-  streamProtocol = "hls",
 }: MobileVideoGridProps) {
   const displayedCameras =
     layoutMode === "1x1" && selectedCameraId
@@ -32,19 +30,17 @@ export function MobileVideoGrid({
 
   return (
     <div
-      className={`grid w-full bg-slate-100 gap-1.5 p-1.5 border-b border-slate-200 overflow-hidden ${
-        displayedCameras.length === 1
-          ? "grid-cols-1"
-          : "grid-cols-2"
+      className={`grid w-full bg-black gap-[1px] p-0 m-0 overflow-hidden border-b border-black select-none ${
+        displayedCameras.length === 1 ? "grid-cols-1" : "grid-cols-2"
       }`}
     >
       {displayedCameras.map((camera) => (
         <div
           key={camera.id}
           onClick={() => onSelectCamera(camera.id)}
-          className={`relative transition-all rounded-xl overflow-hidden ${
+          className={`relative aspect-video w-full bg-black overflow-hidden rounded-none transition-all ${
             selectedCameraId === camera.id
-              ? "ring-2 ring-lime-500 shadow-md"
+              ? "outline outline-2 outline-lime-500 z-10"
               : ""
           }`}
         >
@@ -53,7 +49,6 @@ export function MobileVideoGrid({
             isFullscreen={false}
             onToggleFullscreen={() => onDoubleTapCamera(camera.id)}
             refreshTrigger={refreshTrigger}
-            initialProtocol={streamProtocol}
           />
         </div>
       ))}
