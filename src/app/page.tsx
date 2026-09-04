@@ -12,8 +12,10 @@ import { CameraSettingsModal } from "@/components/CameraSettingsModal";
 import { DesktopLayout } from "@/components/DesktopLayout";
 import { MobileLandscapeView } from "@/components/MobileLandscapeView";
 
+import { StreamProtocol } from "@/components/CameraPlayer";
+
 const STORAGE_KEY = "cameraview_configs";
-const STORAGE_VERSION = "v6";
+const STORAGE_VERSION = "v7";
 
 export default function Home() {
   const [cameras, setCameras] = useState<CameraConfig[]>(DEFAULT_CAMERAS);
@@ -35,8 +37,8 @@ export default function Home() {
   // Phone tilt / landscape orientation detection
   const [isDeviceLandscape, setIsDeviceLandscape] = useState(false);
   const [manualLandscape, setManualLandscape] = useState(false);
-  // Default mobile to MP4 for 100% instant Cloudflare Tunnel compatibility
-  const [mobileStreamProtocol, setMobileStreamProtocol] = useState<"webrtc" | "mp4">("mp4");
+  // Default mobile to HLS for universal iOS Safari, Android & Cloudflare Tunnel compatibility
+  const [mobileStreamProtocol, setMobileStreamProtocol] = useState<StreamProtocol>("hls");
 
   useEffect(() => {
     setIsMounted(true);
@@ -207,7 +209,11 @@ export default function Home() {
             layoutMode={layoutMode}
             streamProtocol={mobileStreamProtocol}
             onToggleStreamProtocol={() =>
-              setMobileStreamProtocol((p) => (p === "mp4" ? "webrtc" : "mp4"))
+              setMobileStreamProtocol((p) => {
+                if (p === "hls") return "mp4";
+                if (p === "mp4") return "webrtc";
+                return "hls";
+              })
             }
             onTogglePause={() => setIsPaused((prev) => !prev)}
             onToggleMute={() => setIsMuted((prev) => !prev)}

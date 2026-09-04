@@ -35,7 +35,7 @@ async function ensureStreamRegistered(src: string, baseUrl: string) {
   }
 }
 
-// Handle all GET requests (snapshots, progressive mp4 streams, status)
+// Handle all GET requests (HLS playlists & segments, progressive mp4 streams, snapshots, status)
 export async function GET(
   request: NextRequest,
   { params }: { params: Promise<{ path: string[] }> }
@@ -52,11 +52,17 @@ export async function GET(
       await ensureStreamRegistered(src, baseUrl);
     }
 
+    const forwardHeaders: Record<string, string> = {
+      accept: request.headers.get("accept") || "*/*",
+    };
+    const rangeHeader = request.headers.get("range");
+    if (rangeHeader) {
+      forwardHeaders["range"] = rangeHeader;
+    }
+
     let response = await fetch(targetUrl, {
       method: "GET",
-      headers: {
-        accept: request.headers.get("accept") || "*/*",
-      },
+      headers: forwardHeaders,
       cache: "no-store",
     });
 
@@ -64,30 +70,35 @@ export async function GET(
       await ensureStreamRegistered(src, baseUrl);
       response = await fetch(targetUrl, {
         method: "GET",
-        headers: {
-          accept: request.headers.get("accept") || "*/*",
-        },
+        headers: forwardHeaders,
         cache: "no-store",
       });
     }
 
-    if (!response.ok) {
-      return new NextResponse(response.body, {
-        status: response.status,
-        headers: {
-          "content-type": response.headers.get("content-type") || "text/plain",
-          "cache-control": "no-store",
-        },
-      });
+    const contentType =
+      response.headers.get("content-type") || "application/octet-stream";
+
+    const responseHeaders: Record<string, string> = {
+      "content-type": contentType,
+      "cache-control": "no-cache, no-store, must-revalidate",
+      "access-control-allow-origin": "*",
+      "access-control-allow-methods": "GET, HEAD, OPTIONS",
+    };
+
+    // Forward byte-range headers critical for iOS Safari media player
+    if (response.headers.has("content-range")) {
+      responseHeaders["content-range"] = response.headers.get("content-range")!;
+    }
+    if (response.headers.has("accept-ranges")) {
+      responseHeaders["accept-ranges"] = response.headers.get("accept-ranges")!;
+    }
+    if (response.headers.has("content-length")) {
+      responseHeaders["content-length"] = response.headers.get("content-length")!;
     }
 
-    const contentType = response.headers.get("content-type") || "application/octet-stream";
     return new NextResponse(response.body, {
-      status: 200,
-      headers: {
-        "content-type": contentType,
-        "cache-control": "no-store",
-      },
+      status: response.status,
+      headers: responseHeaders,
     });
   } catch (err: unknown) {
     return NextResponse.json(

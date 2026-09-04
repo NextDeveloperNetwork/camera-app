@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useRef, useEffect, useState, useCallback } from "react";
+import Hls from "hls.js";
 import { CameraConfig, ConnectionStatus } from "@/lib/types";
 import {
   Wifi,
@@ -17,11 +18,14 @@ import {
   Gauge,
 } from "lucide-react";
 
+export type StreamProtocol = "hls" | "mp4" | "webrtc" | "mjpeg";
+
 interface CameraPlayerProps {
   camera: CameraConfig;
   isFullscreen?: boolean;
   onToggleFullscreen?: () => void;
   refreshTrigger?: number;
+  initialProtocol?: StreamProtocol;
 }
 
 export function CameraPlayer({
@@ -29,13 +33,15 @@ export function CameraPlayer({
   isFullscreen = false,
   onToggleFullscreen,
   refreshTrigger = 0,
+  initialProtocol = "hls",
 }: CameraPlayerProps) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const pcRef = useRef<RTCPeerConnection | null>(null);
+  const hlsRef = useRef<Hls | null>(null);
   const fallbackTimerRef = useRef<NodeJS.Timeout | null>(null);
 
   const [status, setStatus] = useState<ConnectionStatus>("connecting");
-  const [streamProtocol, setStreamProtocol] = useState<"webrtc" | "mp4">("webrtc");
+  const [streamProtocol, setStreamProtocol] = useState<StreamProtocol>(initialProtocol);
   // In grid view, default to fast substream for instant, smooth playback. In fullscreen, default to HD.
   const [quality, setQuality] = useState<"fast" | "hd">(isFullscreen ? "hd" : "fast");
   const [isMuted, setIsMuted] = useState(true);
@@ -66,17 +72,24 @@ export function CameraPlayer({
     return () => clearInterval(interval);
   }, []);
 
-  // Cleanup WebRTC & Video
+  // Cleanup all streams
   const stopStream = useCallback(() => {
     if (fallbackTimerRef.current) {
       clearTimeout(fallbackTimerRef.current);
       fallbackTimerRef.current = null;
+    }
+    if (hlsRef.current) {
+      hlsRef.current.destroy();
+      hlsRef.current = null;
     }
     if (pcRef.current) {
       pcRef.current.close();
       pcRef.current = null;
     }
     if (videoRef.current) {
+      videoRef.current.onloadedmetadata = null;
+      videoRef.current.oncanplay = null;
+      videoRef.current.onerror = null;
       videoRef.current.srcObject = null;
       videoRef.current.removeAttribute("src");
       videoRef.current.load();
@@ -90,11 +103,11 @@ export function CameraPlayer({
     try {
       const liveEdge = v.buffered.end(v.buffered.length - 1);
       const lag = liveEdge - v.currentTime;
-      if (lag > 2.0) {
+      if (lag > 3.0) {
         // Jump directly to live edge
-        v.currentTime = liveEdge - 0.15;
-      } else if (lag > 0.6) {
-        // Slight lag: speed up temporarily
+        v.currentTime = liveEdge - 0.2;
+      } else if (lag > 0.8) {
+        // Slight lag: catch up gently
         v.playbackRate = 1.15;
       } else {
         v.playbackRate = 1.0;
@@ -102,106 +115,237 @@ export function CameraPlayer({
     } catch {}
   }, []);
 
-  // Start Stream (WebRTC with instant MP4 HTTP fallback)
+  // Start Stream with intelligent multi-transport support
   const startStream = useCallback(
-    async (forcedProtocol?: "webrtc" | "mp4") => {
+    async (forcedProtocol?: StreamProtocol) => {
       stopStream();
       setStatus("connecting");
       setErrorMessage("");
 
       const activeProtocol = forcedProtocol || streamProtocol;
 
-      // ── PROTOCOL: MP4 Progressive HTTP Stream (100% Cloudflare Tunnel Compatible) ──
+      // ── PROTOCOL 1: Low-Latency HLS (100% Mobile & Safari & Cloudflare Tunnel compatible) ──
+      if (activeProtocol === "hls") {
+        setStreamProtocol("hls");
+        const v = videoRef.current;
+        if (!v) return;
+
+        const hlsUrl = `/api/stream/stream.m3u8?src=${encodeURIComponent(
+          activeStreamName
+        )}`;
+
+        // A) Native HLS for Safari (iPhone, iPad, Mac)
+        if (v.canPlayType("application/vnd.apple.mpegurl")) {
+          v.src = hlsUrl;
+          v.muted = true;
+          v.setAttribute("playsinline", "true");
+          v.setAttribute("webkit-playsinline", "true");
+
+          const markConnected = () => {
+            setStatus("connected");
+            v.play().catch(() => {
+              v.muted = true;
+              v.play().catch(() => {});
+            });
+          };
+
+          v.onloadedmetadata = markConnected;
+          v.oncanplay = markConnected;
+          v.onerror = (e) => {
+            console.warn("Native HLS failed on mobile, trying MP4 fallback:", e);
+            startStream("mp4");
+          };
+
+          fallbackTimerRef.current = setTimeout(() => {
+            if (v.videoWidth === 0) {
+              console.warn("Native HLS timeout, falling back to MP4");
+              startStream("mp4");
+            }
+          }, 4500);
+          return;
+        }
+
+        // B) HLS.js for Android Chrome, Edge, Firefox, Desktop Chrome
+        if (Hls.isSupported()) {
+          const hls = new Hls({
+            enableWorker: true,
+            lowLatencyMode: true,
+            backBufferLength: 0,
+            maxBufferLength: 2,
+            maxMaxBufferLength: 4,
+            liveSyncDurationCount: 1,
+            liveMaxLatencyDurationCount: 2.5,
+            manifestLoadingTimeOut: 6000,
+            manifestLoadingMaxRetry: 3,
+            levelLoadingTimeOut: 6000,
+            levelLoadingMaxRetry: 3,
+            fragLoadingTimeOut: 6000,
+            fragLoadingMaxRetry: 3,
+          });
+          hlsRef.current = hls;
+
+          hls.loadSource(hlsUrl);
+          hls.attachMedia(v);
+
+          hls.on(Hls.Events.MANIFEST_PARSED, () => {
+            setStatus("connected");
+            v.muted = true;
+            v.play().catch(() => {
+              v.muted = true;
+              v.play().catch(() => {});
+            });
+          });
+
+          hls.on(Hls.Events.ERROR, (event, data) => {
+            if (data.fatal) {
+              console.warn("HLS fatal error:", data.type, data.details);
+              switch (data.type) {
+                case Hls.ErrorTypes.NETWORK_ERROR:
+                  hls.startLoad();
+                  break;
+                case Hls.ErrorTypes.MEDIA_ERROR:
+                  hls.recoverMediaError();
+                  break;
+                default:
+                  hls.destroy();
+                  hlsRef.current = null;
+                  startStream("mp4");
+                  break;
+              }
+            }
+          });
+
+          fallbackTimerRef.current = setTimeout(() => {
+            if (v.videoWidth === 0) {
+              console.warn("HLS.js timeout without video frames, trying MP4");
+              startStream("mp4");
+            }
+          }, 4500);
+          return;
+        }
+
+        // Fallback to MP4 if HLS is unavailable
+        startStream("mp4");
+        return;
+      }
+
+      // ── PROTOCOL 2: MP4 Progressive HTTP Stream ──
       if (activeProtocol === "mp4") {
         setStreamProtocol("mp4");
-        if (videoRef.current) {
+        const v = videoRef.current;
+        if (v) {
           const streamUrl = `/api/stream/stream.mp4?src=${encodeURIComponent(
             activeStreamName
           )}`;
-          videoRef.current.src = streamUrl;
-          videoRef.current.onloadedmetadata = () => {
+          v.src = streamUrl;
+          v.muted = true;
+          v.setAttribute("playsinline", "true");
+          v.setAttribute("webkit-playsinline", "true");
+          v.onloadedmetadata = () => {
             setStatus("connected");
-            videoRef.current?.play().catch(() => {});
+            v.play().catch(() => {});
           };
-          videoRef.current.onerror = () => {
-            setStatus("error");
-            setErrorMessage("Feed stream error");
+          v.onerror = () => {
+            console.warn("MP4 stream error, trying MJPEG fallback");
+            startStream("mjpeg");
           };
+
+          fallbackTimerRef.current = setTimeout(() => {
+            if (v.videoWidth === 0) {
+              console.warn("MP4 timed out without video frames, trying MJPEG");
+              startStream("mjpeg");
+            }
+          }, 4500);
         }
         return;
       }
 
-      // ── PROTOCOL: WebRTC WHEP ──
-      setStreamProtocol("webrtc");
-      try {
-        const pc = new RTCPeerConnection({
-          iceServers: [
-            { urls: "stun:stun.l.google.com:19302" },
-            { urls: "stun:stun1.l.google.com:19302" },
-          ],
-        });
-        pcRef.current = pc;
+      // ── PROTOCOL 3: WebRTC WHEP (Fast on LAN) ──
+      if (activeProtocol === "webrtc") {
+        setStreamProtocol("webrtc");
+        try {
+          const pc = new RTCPeerConnection({
+            iceServers: [
+              { urls: "stun:stun.l.google.com:19302" },
+              { urls: "stun:stun1.l.google.com:19302" },
+            ],
+          });
+          pcRef.current = pc;
 
-        pc.addTransceiver("video", { direction: "recvonly" });
-        pc.addTransceiver("audio", { direction: "recvonly" });
+          pc.addTransceiver("video", { direction: "recvonly" });
+          pc.addTransceiver("audio", { direction: "recvonly" });
 
-        pc.ontrack = (event) => {
-          if (videoRef.current && event.streams[0]) {
-            videoRef.current.srcObject = event.streams[0];
-            videoRef.current.play().catch(() => {});
-            setStatus("connected");
+          pc.ontrack = (event) => {
+            if (videoRef.current && event.streams[0]) {
+              videoRef.current.srcObject = event.streams[0];
+              videoRef.current.muted = true;
+              videoRef.current.play().catch(() => {});
+              setStatus("connected");
+            }
+          };
+
+          pc.oniceconnectionstatechange = () => {
+            if (
+              pc.iceConnectionState === "failed" ||
+              pc.iceConnectionState === "disconnected"
+            ) {
+              console.warn("WebRTC UDP failed, switching to HLS stream");
+              startStream("hls");
+            }
+          };
+
+          fallbackTimerRef.current = setTimeout(() => {
+            if (videoRef.current && videoRef.current.videoWidth === 0) {
+              console.warn("WebRTC has no video frames, falling back to HLS stream");
+              startStream("hls");
+            }
+          }, 3500);
+
+          const offer = await pc.createOffer();
+          await pc.setLocalDescription(offer);
+
+          const endpoint = `/api/stream/webrtc?src=${encodeURIComponent(
+            activeStreamName
+          )}`;
+
+          const response = await fetch(endpoint, {
+            method: "POST",
+            headers: { "Content-Type": "application/sdp" },
+            body: offer.sdp,
+          });
+
+          if (pcRef.current !== pc) return;
+
+          if (!response.ok) {
+            throw new Error(`HTTP ${response.status}`);
           }
-        };
 
-        pc.oniceconnectionstatechange = () => {
-          if (
-            pc.iceConnectionState === "failed" ||
-            pc.iceConnectionState === "disconnected"
-          ) {
-            console.warn("WebRTC UDP failed, switching to fast MP4 stream");
-            startStream("mp4");
-          }
-        };
+          const answerSdp = await response.text();
+          if (pcRef.current !== pc) return;
 
-        // Watchdog: If WebRTC has no video frames after 3s (UDP blocked), auto-fallback to MP4
-        fallbackTimerRef.current = setTimeout(() => {
-          if (videoRef.current && videoRef.current.videoWidth === 0) {
-            console.warn("WebRTC has no video frames, falling back to MP4 stream");
-            startStream("mp4");
-          }
-        }, 3000);
-
-        const offer = await pc.createOffer();
-        await pc.setLocalDescription(offer);
-
-        const endpoint = `/api/stream/webrtc?src=${encodeURIComponent(
-          activeStreamName
-        )}`;
-
-        const response = await fetch(endpoint, {
-          method: "POST",
-          headers: { "Content-Type": "application/sdp" },
-          body: offer.sdp,
-        });
-
-        if (pcRef.current !== pc) return;
-
-        if (!response.ok) {
-          throw new Error(`HTTP ${response.status}`);
+          await pc.setRemoteDescription({
+            type: "answer",
+            sdp: answerSdp,
+          });
+        } catch (err: unknown) {
+          if (!pcRef.current) return;
+          console.warn("WebRTC handshake failed, falling back to HLS stream:", err);
+          startStream("hls");
         }
+        return;
+      }
 
-        const answerSdp = await response.text();
-
-        if (pcRef.current !== pc) return;
-
-        await pc.setRemoteDescription({
-          type: "answer",
-          sdp: answerSdp,
-        });
-      } catch (err: unknown) {
-        if (!pcRef.current) return;
-        console.warn("WebRTC handshake failed, falling back to MP4 stream:", err);
-        startStream("mp4");
+      // ── PROTOCOL 4: MJPEG Fallback Stream ──
+      if (activeProtocol === "mjpeg") {
+        setStreamProtocol("mjpeg");
+        const v = videoRef.current;
+        if (v) {
+          v.src = `/api/stream/frame.mjpeg?src=${encodeURIComponent(
+            activeStreamName
+          )}`;
+          v.onloadedmetadata = () => setStatus("connected");
+          v.play().catch(() => {});
+        }
       }
     },
     [activeStreamName, stopStream, streamProtocol]
@@ -257,7 +401,10 @@ export function CameraPlayer({
   // Toggle protocol explicitly
   const toggleProtocol = (e?: React.MouseEvent) => {
     if (e) e.stopPropagation();
-    const next = streamProtocol === "webrtc" ? "mp4" : "webrtc";
+    let next: StreamProtocol = "hls";
+    if (streamProtocol === "hls") next = "mp4";
+    else if (streamProtocol === "mp4") next = "webrtc";
+    else next = "hls";
     startStream(next);
   };
 
@@ -268,6 +415,19 @@ export function CameraPlayer({
   };
 
   const channelNum = camera.streamName.slice(-1) || "1";
+
+  const getProtocolLabel = () => {
+    switch (streamProtocol) {
+      case "hls":
+        return "HLS Live";
+      case "mp4":
+        return "MP4 Stream";
+      case "webrtc":
+        return "WebRTC";
+      case "mjpeg":
+        return "MJPEG";
+    }
+  };
 
   return (
     <div
@@ -425,9 +585,21 @@ export function CameraPlayer({
               </div>
             </div>
 
-            {/* Bottom Fullscreen Floating Action Bar */}
-            <div className="absolute bottom-5 inset-x-0 z-20 flex justify-center px-4 pointer-events-none">
-              <div className="flex items-center gap-2 rounded-2xl bg-black/80 px-4 py-2 shadow-xl border border-white/10 backdrop-blur-md pointer-events-auto text-white">
+            {/* Bottom bar in fullscreen */}
+            <div className="absolute bottom-0 inset-x-0 z-20 flex items-center justify-between bg-black/80 px-4 py-3 border-t border-white/10 backdrop-blur-md text-white">
+              <div className="flex items-center gap-2 text-xs font-mono text-white/70">
+                <span>{currentTime}</span>
+                <span>&bull;</span>
+                <button
+                  onClick={toggleProtocol}
+                  className="flex items-center gap-1 font-bold text-amber-400 bg-white/10 px-2 py-0.5 rounded border border-white/20 hover:bg-white/20"
+                >
+                  <Zap className="h-3 w-3" />
+                  <span>{getProtocolLabel()}</span>
+                </button>
+              </div>
+
+              <div className="flex items-center gap-2">
                 <button
                   onClick={toggleAudio}
                   className="flex h-10 w-10 items-center justify-center rounded-xl text-white/80 hover:bg-white/10 transition-colors"
@@ -443,7 +615,7 @@ export function CameraPlayer({
                 <button
                   onClick={handleSnapshot}
                   className="flex h-10 w-10 items-center justify-center rounded-xl text-white/80 hover:bg-white/10 transition-colors"
-                  title="Take Snapshot"
+                  title="Capture Snapshot"
                 >
                   <Camera className="h-5 w-5" />
                 </button>
@@ -471,10 +643,10 @@ export function CameraPlayer({
             <button
               onClick={toggleProtocol}
               className="flex items-center gap-1 font-bold text-[10px] text-slate-700 hover:text-slate-950 transition-colors bg-slate-100 px-1.5 py-0.5 rounded border border-slate-200"
-              title="Click to switch between WebRTC and MP4 stream"
+              title="Click to switch stream protocol (HLS / MP4 / WebRTC)"
             >
               <Zap className="h-3 w-3 text-amber-500" />
-              <span>{streamProtocol === "webrtc" ? "WebRTC" : "MP4 Stream"}</span>
+              <span>{getProtocolLabel()}</span>
             </button>
           </div>
 
@@ -493,11 +665,10 @@ export function CameraPlayer({
 
             <button
               onClick={handleSnapshot}
-              className="flex items-center gap-1 px-1.5 py-0.5 rounded hover:bg-slate-100 text-slate-500 hover:text-slate-800 transition-colors"
-              title="Take Snapshot"
+              className="p-1 rounded hover:bg-slate-100 text-slate-500 hover:text-slate-800 transition-colors"
+              title="Take snapshot"
             >
               <Camera className="h-3.5 w-3.5" />
-              <span className="text-[10px]">Snap</span>
             </button>
 
             <button

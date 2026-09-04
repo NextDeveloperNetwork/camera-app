@@ -13,6 +13,8 @@ import {
   Zap,
 } from "lucide-react";
 
+import { StreamProtocol } from "./CameraPlayer";
+
 interface MobileQuickToolbarProps {
   isPaused: boolean;
   onTogglePause: () => void;
@@ -23,7 +25,7 @@ interface MobileQuickToolbarProps {
   isMuted: boolean;
   onToggleMute: () => void;
   activeCameraName: string;
-  streamProtocol?: "webrtc" | "mp4";
+  streamProtocol?: StreamProtocol;
   onToggleStreamProtocol?: () => void;
 }
 
@@ -36,7 +38,7 @@ export function MobileQuickToolbar({
   onToggleLayout,
   isMuted,
   onToggleMute,
-  streamProtocol = "mp4",
+  streamProtocol = "hls",
   onToggleStreamProtocol,
 }: MobileQuickToolbarProps) {
   return (
@@ -75,15 +77,21 @@ export function MobileQuickToolbar({
         </button>
       </div>
 
-      {/* Center: Stream Protocol Toggle Badge (WebRTC vs MP4) */}
+      {/* Center: Stream Protocol Toggle Badge (HLS / MP4 / WebRTC) */}
       {onToggleStreamProtocol && (
         <button
           onClick={onToggleStreamProtocol}
           className="flex items-center gap-1 text-[11px] font-bold px-2 py-1 rounded-full bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-200 transition-all active:scale-95"
-          title="Click to toggle WebRTC vs MP4 Stream"
+          title="Click to toggle stream protocol (HLS Live / MP4 / WebRTC)"
         >
           <Zap className="h-3 w-3 text-amber-500 fill-current" />
-          <span>{streamProtocol === "mp4" ? "MP4 Stream" : "WebRTC"}</span>
+          <span>
+            {streamProtocol === "hls"
+              ? "HLS Live"
+              : streamProtocol === "mp4"
+              ? "MP4 Stream"
+              : "WebRTC"}
+          </span>
         </button>
       )}
 

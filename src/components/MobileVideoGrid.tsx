@@ -2,7 +2,7 @@
 
 import React from "react";
 import { CameraConfig } from "@/lib/types";
-import { CameraPlayer } from "./CameraPlayer";
+import { CameraPlayer, StreamProtocol } from "./CameraPlayer";
 
 interface MobileVideoGridProps {
   cameras: CameraConfig[];
@@ -13,7 +13,7 @@ interface MobileVideoGridProps {
   isPaused?: boolean;
   isMuted?: boolean;
   layoutMode: "2x2" | "1x1";
-  streamProtocol?: "webrtc" | "mp4";
+  streamProtocol?: StreamProtocol;
 }
 
 export function MobileVideoGrid({
@@ -23,6 +23,7 @@ export function MobileVideoGrid({
   onDoubleTapCamera,
   refreshTrigger,
   layoutMode,
+  streamProtocol = "hls",
 }: MobileVideoGridProps) {
   const displayedCameras =
     layoutMode === "1x1" && selectedCameraId
@@ -52,6 +53,7 @@ export function MobileVideoGrid({
             isFullscreen={false}
             onToggleFullscreen={() => onDoubleTapCamera(camera.id)}
             refreshTrigger={refreshTrigger}
+            initialProtocol={streamProtocol}
           />
         </div>
       ))}
