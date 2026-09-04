@@ -5,6 +5,33 @@ const getGo2RtcUrl = () => {
   return process.env.GO2RTC_URL || "http://127.0.0.1:1984";
 };
 
+import { spawn } from "child_process";
+import fs from "fs";
+import path from "path";
+
+let isSpawning = false;
+function autoStartWindowsGo2Rtc() {
+  if (process.platform !== "win32" || isSpawning) return;
+  const exePath = path.join(process.cwd(), "go2rtc.exe");
+  const configPath = path.join(process.cwd(), "go2rtc.yaml");
+  if (fs.existsSync(exePath)) {
+    isSpawning = true;
+    try {
+      const child = spawn(exePath, ["-config", configPath], {
+        detached: true,
+        stdio: "ignore",
+      });
+      child.unref();
+      console.log("Auto-started local go2rtc.exe process");
+    } catch (e) {
+      console.warn("Could not auto-start go2rtc.exe:", e);
+    }
+    setTimeout(() => {
+      isSpawning = false;
+    }, 4000);
+  }
+}
+
 // Ensure a camera stream exists in go2rtc (mainstream or substream)
 async function ensureStreamRegistered(src: string, baseUrl: string) {
   let streamUrl = "";
@@ -30,7 +57,10 @@ async function ensureStreamRegistered(src: string, baseUrl: string) {
         { method: "PUT" }
       );
     } catch (e) {
-      console.warn(`Failed to auto-register stream ${src} in go2rtc:`, e);
+      // If go2rtc is offline on Windows, attempt auto-start
+      if (baseUrl.includes("127.0.0.1") || baseUrl.includes("localhost")) {
+        autoStartWindowsGo2Rtc();
+      }
     }
   }
 }
@@ -101,10 +131,13 @@ export async function GET(
       headers: responseHeaders,
     });
   } catch (err: unknown) {
+    if (baseUrl.includes("127.0.0.1") || baseUrl.includes("localhost")) {
+      autoStartWindowsGo2Rtc();
+    }
     return NextResponse.json(
       {
         error: "GO2RTC_UNREACHABLE",
-        message: `go2rtc streaming bridge at ${baseUrl} is not currently running or unreachable.`,
+        message: `go2rtc streaming bridge at ${baseUrl} is not currently running or unreachable. Starting bridge...`,
       },
       { status: 503 }
     );
@@ -159,10 +192,13 @@ export async function POST(
       },
     });
   } catch (err: unknown) {
+    if (baseUrl.includes("127.0.0.1") || baseUrl.includes("localhost")) {
+      autoStartWindowsGo2Rtc();
+    }
     return NextResponse.json(
       {
         error: "GO2RTC_UNREACHABLE",
-        message: `go2rtc streaming bridge at ${baseUrl} is not currently running or unreachable.`,
+        message: `go2rtc streaming bridge at ${baseUrl} is not currently running or unreachable. Starting bridge...`,
       },
       { status: 503 }
     );

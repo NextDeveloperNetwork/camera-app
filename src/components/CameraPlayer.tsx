@@ -141,7 +141,14 @@ export function CameraPlayer({
           v.setAttribute("playsinline", "true");
           v.setAttribute("webkit-playsinline", "true");
 
+          let connected = false;
           const markConnected = () => {
+            if (connected) return;
+            connected = true;
+            if (fallbackTimerRef.current) {
+              clearTimeout(fallbackTimerRef.current);
+              fallbackTimerRef.current = null;
+            }
             setStatus("connected");
             v.play().catch(() => {
               v.muted = true;
@@ -151,17 +158,22 @@ export function CameraPlayer({
 
           v.onloadedmetadata = markConnected;
           v.oncanplay = markConnected;
-          v.onerror = (e) => {
-            console.warn("Native HLS failed on mobile, trying MP4 fallback:", e);
-            startStream("mp4");
-          };
-
-          fallbackTimerRef.current = setTimeout(() => {
-            if (v.videoWidth === 0) {
-              console.warn("Native HLS timeout, falling back to MP4");
+          v.addEventListener("playing", markConnected, { once: true });
+          v.onerror = () => {
+            if (!connected) {
+              console.warn("Native HLS error, trying MP4 fallback");
               startStream("mp4");
             }
-          }, 4500);
+          };
+
+          // go2rtc needs time to connect RTSP and prepare the first HLS segments
+          // 12 seconds is safe for slow DVR connections
+          fallbackTimerRef.current = setTimeout(() => {
+            if (!connected) {
+              console.warn("Native HLS timeout (12s), falling back to MP4");
+              startStream("mp4");
+            }
+          }, 12000);
           return;
         }
 
@@ -215,12 +227,13 @@ export function CameraPlayer({
             }
           });
 
+          // 12 second timeout - go2rtc RTSP startup can take several seconds
           fallbackTimerRef.current = setTimeout(() => {
-            if (v.videoWidth === 0) {
-              console.warn("HLS.js timeout without video frames, trying MP4");
+            if (v.videoWidth === 0 && v.readyState < 2) {
+              console.warn("HLS.js timeout (12s) without video frames, trying MP4");
               startStream("mp4");
             }
-          }, 4500);
+          }, 12000);
           return;
         }
 
@@ -241,21 +254,35 @@ export function CameraPlayer({
           v.muted = true;
           v.setAttribute("playsinline", "true");
           v.setAttribute("webkit-playsinline", "true");
-          v.onloadedmetadata = () => {
+
+          let mpConnected = false;
+          const markMp4Connected = () => {
+            if (mpConnected) return;
+            mpConnected = true;
+            if (fallbackTimerRef.current) {
+              clearTimeout(fallbackTimerRef.current);
+              fallbackTimerRef.current = null;
+            }
             setStatus("connected");
             v.play().catch(() => {});
           };
+
+          v.onloadedmetadata = markMp4Connected;
+          v.addEventListener("playing", markMp4Connected, { once: true });
           v.onerror = () => {
-            console.warn("MP4 stream error, trying MJPEG fallback");
-            startStream("mjpeg");
+            if (!mpConnected) {
+              console.warn("MP4 stream error, retrying HLS");
+              startStream("hls");
+            }
           };
 
+          // If MP4 doesn't produce frames in 8s, retry from HLS (not MJPEG which returns 404)
           fallbackTimerRef.current = setTimeout(() => {
-            if (v.videoWidth === 0) {
-              console.warn("MP4 timed out without video frames, trying MJPEG");
-              startStream("mjpeg");
+            if (!mpConnected) {
+              console.warn("MP4 timed out (8s), retrying HLS");
+              startStream("hls");
             }
-          }, 4500);
+          }, 8000);
         }
         return;
       }
@@ -299,7 +326,7 @@ export function CameraPlayer({
               console.warn("WebRTC has no video frames, falling back to HLS stream");
               startStream("hls");
             }
-          }, 3500);
+          }, 5000);
 
           const offer = await pc.createOffer();
           await pc.setLocalDescription(offer);
@@ -335,17 +362,12 @@ export function CameraPlayer({
         return;
       }
 
-      // ── PROTOCOL 4: MJPEG Fallback Stream ──
+      // MJPEG is not supported by go2rtc for RTSP sources, so we loop back to HLS
       if (activeProtocol === "mjpeg") {
-        setStreamProtocol("mjpeg");
-        const v = videoRef.current;
-        if (v) {
-          v.src = `/api/stream/frame.mjpeg?src=${encodeURIComponent(
-            activeStreamName
-          )}`;
-          v.onloadedmetadata = () => setStatus("connected");
-          v.play().catch(() => {});
-        }
+        console.warn("MJPEG not available, retrying HLS in 3s");
+        fallbackTimerRef.current = setTimeout(() => {
+          startStream("hls");
+        }, 3000);
       }
     },
     [activeStreamName, stopStream, streamProtocol]
