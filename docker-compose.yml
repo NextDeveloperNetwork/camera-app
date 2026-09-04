@@ -15,32 +15,13 @@ services:
       - stream-server
 
   stream-server:
-    image: bluenviron/mediamtx:latest
+    build:
+      context: .
+      dockerfile: Dockerfile.mediamtx
     container_name: cameraview-mediamtx
     restart: unless-stopped
     ports:
       - "8888:8888"       # HLS stream server
-    environment:
-      - MTX_LOGLEVEL=info
-      - MTX_HLSADDRESS=:8888
-      - MTX_HLSALLOWORIGINS=*
-      - MTX_HLSVARIANT=fmp4
-      - MTX_HLSSEGMENTCOUNT=5
-      - MTX_HLSSEGMENTDURATION=2s
-      - MTX_WEBRTCADDRESS=:8889
-      - MTX_SRTADDRESS=:8890
-      - MTX_PATHDEFAULTS_RTSPTRANSPORT=tcp
-      - MTX_PATHDEFAULTS_SOURCEONDEMAND=yes
-      - MTX_PATHDEFAULTS_SOURCEONDEMANDSTARTTIMEOUT=15s
-      - MTX_PATHDEFAULTS_SOURCEONDEMANDCLOSEAFTER=30s
-      - MTX_PATHS_CAMERA_CHANNEL_1_SOURCE=rtsp://192.168.1.10:554/user=admin&password=&channel=1&stream=0.sdp
-      - MTX_PATHS_CAMERA_CHANNEL_2_SOURCE=rtsp://192.168.1.10:554/user=admin&password=&channel=2&stream=0.sdp
-      - MTX_PATHS_CAMERA_CHANNEL_3_SOURCE=rtsp://192.168.1.10:554/user=admin&password=&channel=3&stream=0.sdp
-      - MTX_PATHS_CAMERA_CHANNEL_4_SOURCE=rtsp://192.168.1.10:554/user=admin&password=&channel=4&stream=0.sdp
-      - MTX_PATHS_CAMERA_CHANNEL_1_SUB_SOURCE=rtsp://192.168.1.10:554/user=admin&password=&channel=1&stream=1.sdp
-      - MTX_PATHS_CAMERA_CHANNEL_2_SUB_SOURCE=rtsp://192.168.1.10:554/user=admin&password=&channel=2&stream=1.sdp
-      - MTX_PATHS_CAMERA_CHANNEL_3_SUB_SOURCE=rtsp://192.168.1.10:554/user=admin&password=&channel=3&stream=1.sdp
-      - MTX_PATHS_CAMERA_CHANNEL_4_SUB_SOURCE=rtsp://192.168.1.10:554/user=admin&password=&channel=4&stream=1.sdp
 
   tunnel:
     image: cloudflare/cloudflared:latest
